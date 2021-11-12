@@ -164,7 +164,21 @@ Torch, by default, applies a multi-layer Elman RNN. This is defined as applying 
 h_t  &= \sigma_h(W_h x_t + U_h h_{t-1} + b_h)\\
 y_t  &= \sigma_y(W_y h_t + b_y)
 \end{align}
-where $x_t$ is an input vector, $h_t$ is a hidden layer vector, $y_t$ is an output vector, $W, U, b$ are parameter matrices and vector, $\sigma_h, \sigma_y$ are activation functions.
+where $x_t$ is an input vector, $h_t$ is a hidden layer vector, $y_t$ is an output vector, $W, U, b$ are parameter matrices and vector, $\sigma_h, \sigma_y$ are activation functions. Note that we don't actually retain the hidden state between lines -- we throw it away after every complete training example (a line). We will typically initialize the hidden state to be $h_{t=0}=0$. Within a particular training instance, on a particular line, we may have different maximum values of $t=T$. 
+
+For example, in word classification, where we construct a character-level RNN, in each training loop we will
+\begin{enumerate}[noitemsep]
+\item Get an input and target tensor
+\item Create a zeroed initial hidden state
+\item Read each letter in and:
+\begin{itemize}[noitemsep]
+\item Keep hidden state for next letter
+\item Feed the previous hidden state $h_{t-1}$ in with the current input $x_t$
+\end{itemize}
+\item Compare output at the end of the RNN loop to the target
+\item Back-propagate
+\end{enumerate}
+Then return the output and loss.
 
 \begin{figure}
 \begin{center}
