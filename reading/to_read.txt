@@ -1,0 +1,11 @@
+https://arxiv.org/pdf/1409.0473.pdf: Bahdanau original attention, otherwise additive
+ 
+https://arxiv.org/pdf/1601.06733.pdf: self-attention / deep attention infusion paper used in NMT
+ 
+https://arxiv.org/abs/1508.04025: Luong take on Bahdanau and effective calculation with dot product <--- We are here
+ 
+https://arxiv.org/pdf/1706.03762.pdf: Multi headed intra attention and transformer architecture <--- We are (likely) going here
+
+https://blog.floydhub.com/attention-mechanism/
+
+https://medium.com/swlh/a-simple-overview-of-rnn-lstm-and-attention-mechanism-9e844763d07b
