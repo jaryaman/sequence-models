@@ -182,12 +182,38 @@ Then return the output and loss.
 
 \begin{figure}
 \begin{center}
-\includegraphics[width=0.8\columnwidth]{figures/rnn.png}  
+\includegraphics[width=0.8\columnwidth]{../figures/rnn.png}  
 \end{center}
 \caption{Graphical representation of RNN
 }
 \label{fig:rnn}
 \end{figure}
+
+\subsection{Gated recurrent unit}
+A GRU is a type of RNN. For each element in the input sequence, each layer computes the following function:
+\begin{align}
+z_t &= \sigma(W_{iz}x_t + b_{iz} + W_{hz} h_{(t-1)} + b_{hz}) \label{eq:gru_update_gate_zt} \\
+r_t &= \sigma(W_{ir}x_t + b_{ir} + W_{hr}h_{(t-1)} + b_{hr}) \label{eq:gru_reset_gate_rt} \\
+n_t &= \tanh(W_{in} x_t + b_{in} + r_t \odot (W_{hn} h_{(t-1)} + b_{hn}) ) \label{eq:gru_candidate_hidden_state_nt} \\
+h_t &= (1-z_t) \odot n_t + z_t \odot h_{(t-1)} \label{eq:update_ht}
+\end{align}
+where $x_t$ is the input at time $t$, $h_t$ is the hidden state at time $t$. $r_t$, $z_t$, and $n_t$ are the reset, update, and new gates respectively. $\sigma$ is the sigmoid function, and $\odot$ is the Hadamard product.
+
+\begin{figure}
+\begin{center}
+\includegraphics[width=0.8\columnwidth]{../figures/gru.png}  
+\end{center}
+\caption{Graphical representation of GRU. I don't actually find these super-helpful.
+}
+\label{fig:rnn}
+\end{figure}
+
+\begin{enumerate}[noitemsep]
+\item Eq.\eqref{eq:gru_update_gate_zt} is called the \textbf{update gate}. The update gate combines the input with the previous hidden state. It determines how much of the previous step's hidden state $h_{t-1}$ is passed onto the new hidden state $h_{t}$ in Eq.\eqref{eq:update_ht}.
+\item Eq.\eqref{eq:gru_reset_gate_rt} is called the \textbf{reset gate}. The formula is the same as Eq.\eqref{eq:gru_update_gate_zt}. It will be used to decide how much of the past information to \textbf{forget} in Eq.\eqref{eq:gru_candidate_hidden_state_nt}.
+\item Eq.\eqref{eq:gru_candidate_hidden_state_nt} is a \textbf{candidate} hidden state. It combines the current input with some weighting of the previous hidden state. The reset gate $r_t$ has an element-wise product with $h_{t-1}$, allowing the network to forget $h_{t-1}$ as $r_t \rightarrow 0$. 
+\item Eq.\eqref{eq:update_ht} mixes the previous hidden state $h_{t-1}$ with the candidate hidden state $n_t$ through a convex combination weighted by $z_t$.
+\end{enumerate}
 
 \cite{bahdanau14}
 
