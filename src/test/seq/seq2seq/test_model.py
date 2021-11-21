@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from seq.seq2seq.model import EncoderRNN, DecoderRNN, Lang, tensor_from_sentence
+from seq.seq2seq.model import SOS_token, EncoderRNN, DecoderRNN, AttnDecoderRNN, Lang, tensor_from_sentence
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -40,10 +40,12 @@ class TestEncoderRNN:
         encoder = EncoderRNN(self.input_lang.n_words, n_hidden, DEVICE)
         a_sentence = tensor_from_sentence(self.input_lang, self.pairs[0][0], DEVICE)
 
-        h0 = encoder.init_hidden()
-        output, h_n = encoder(a_sentence, h0)
-        assert output.size() == (5, 1, n_hidden)
-        assert h_n.size() == (1, 1, n_hidden)
+        hidden = encoder.init_hidden()
+        for i in range(len(a_sentence)):
+            output, hidden = encoder(a_sentence[i], hidden)
+
+        assert output.size() == (1, 1, n_hidden)
+        assert hidden.size() == (1, 1, n_hidden)
 
 class TestDecoderRNN:
     def prepare_data(self, make_langs):
@@ -54,9 +56,47 @@ class TestDecoderRNN:
 
         n_hidden = 5
         decoder = DecoderRNN(n_hidden, self.output_lang.n_words, DEVICE)
-        a_sentence = tensor_from_sentence(self.output_lang, self.pairs[0][1], DEVICE)
 
-        h0 = decoder.init_hidden()
-        output, h_n = decoder(a_sentence, h0)
-        assert output.size() == (len(a_sentence), self.output_lang.n_words)
-        assert h_n.size() == (1, 1, n_hidden)
+
+        decoder_input = torch.tensor([SOS_token], device=DEVICE)
+        target_length = 6
+        hidden = decoder.init_hidden()
+
+        for i in range(target_length):
+            decoder_output, hidden = decoder(decoder_input, hidden)
+            topv, topi = decoder_output.topk(1)
+            decoder_input = topi.squeeze(1).detach()
+
+        assert decoder_output.size() == (1, self.output_lang.n_words)
+        assert hidden.size() == (1, 1, n_hidden)
+
+class TestAttnDecoderRNN:
+    n_hidden = 5
+    max_length = 11
+
+    def prepare_data(self, make_langs):
+        self.pairs, self.input_lang, self.output_lang = make_langs
+
+    def test_attn_decoder_without_teacher_forcing(self, make_langs):
+        self.prepare_data(make_langs)
+
+        n_hidden = 5
+        attn_decoder = AttnDecoderRNN(self.n_hidden,
+                                      self.output_lang.n_words,
+                                      self.max_length,
+                                      DEVICE)
+
+        decoder_input = torch.tensor([SOS_token], device=DEVICE)
+        target_length = 6
+        hidden = attn_decoder.init_hidden()
+
+        encoder_outputs = torch.zeros(self.max_length, self.n_hidden, device=DEVICE)
+
+        for i in range(target_length):
+            decoder_output, hidden, decoder_attention = attn_decoder(decoder_input, hidden, encoder_outputs)
+            topv, topi = decoder_output.topk(1)
+            decoder_input = topi.squeeze(1).detach()
+
+        assert decoder_output.size() == (1, self.output_lang.n_words)
+        assert hidden.size() == (1, 1, n_hidden)
+        assert decoder_attention.size() == (1, self.max_length)
