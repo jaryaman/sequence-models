@@ -4,6 +4,8 @@ from collections import namedtuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import optim
+from tqdm import tqdm
 
 # *** global variables ***
 SOS_token = 0  # start of sentence
@@ -29,8 +31,8 @@ def tensors_from_pair(pair, input_lang, output_lang, device):
 
 def train(input_tensor,
           target_tensor,
-          encoder,
-          decoder,
+          encoder: 'EncoderRNN',
+          decoder: 'AttnDecoderRNN',
           encoder_optimizer,
           decoder_optimizer,
           criterion: nn.NLLLoss,
@@ -46,7 +48,7 @@ def train(input_tensor,
     input_length = input_tensor.size(0)
     target_length = target_tensor.size(0)
 
-    encoder_outputs = torch.zeros(max_length, encoder.hidden_size, device=device)
+    encoder_outputs = torch.zeros(max_length, encoder.sizes.hidden, device=device)
 
     loss = 0
 
@@ -88,6 +90,40 @@ def train(input_tensor,
     return loss.item() / target_length
 
 
+def train_iters(pairs,
+                encoder,
+                decoder,
+                input_lang,
+                output_lang,
+                n_iters,
+                device,
+                teacher_forcing_ratio,
+                max_length,
+                learning_rate=0.01):
+
+    losses = []
+
+    encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
+    decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
+    training_pairs = [tensors_from_pair(random.choice(pairs), input_lang, output_lang, device)
+                      for i in range(n_iters)]
+    criterion = nn.NLLLoss()
+
+
+    for iter in tqdm(range(1, n_iters + 1)):
+        training_pair = training_pairs[iter - 1]
+        input_tensor = training_pair[0]
+        target_tensor = training_pair[1]
+
+        loss = train(input_tensor, target_tensor, encoder,
+                     decoder, encoder_optimizer, decoder_optimizer, criterion, teacher_forcing_ratio,
+                     max_length,
+                     device, )
+        losses.append(loss)
+
+    return losses
+
+
 # *** classes ***
 class Lang:
     def __init__(self, name):
@@ -122,13 +158,13 @@ class EncoderRNN(nn.Module):
         self.sizes = Sizes(hidden=hidden_size, in_vocab=in_vocab_size)
         self.device = device
 
-    def forward(self, x_in: torch.Tensor, hidden: torch.Tensor):
+    def forward(self, encoder_input: torch.Tensor, hidden: torch.Tensor):
         """Step forward the encoder
 
         Parameters
         ----------
-        x_in: torch.Tensor
-            A single tokenized word, shape == [1]
+        encoder_input: torch.Tensor
+            A single tokenized word
         hidden: torch.Tensor
             The previous hidden state, shape == [1, 1, hidden_size]
 
@@ -139,7 +175,7 @@ class EncoderRNN(nn.Module):
         hidden: torch.Tensor
             RNN hidden state after evaluation of the RNN
         """
-        embedded = self.embedding(x_in).view(1, 1, -1)  # sequence_length=1, batch_size=1, hidden_size
+        embedded = self.embedding(encoder_input).view(1, 1, -1)  # sequence_length=1, batch_size=1, hidden_size
 
         assert embedded.size() == (1, 1, self.sizes.hidden)
 
@@ -195,7 +231,7 @@ class AttnDecoderRNN(nn.Module):
         self.max_length = max_length
 
         self.embedding = nn.Embedding(out_vocab_size, hidden_size)
-        self.attn = nn.Linear(hidden_size * 2, max_length)
+        self.attn = nn.Linear(hidden_size * 2, max_length)  # alignment model
         self.attn_combine = nn.Linear(hidden_size * 2, hidden_size)
         self.dropout = nn.Dropout(self.dropout_p)
         self.gru = nn.GRU(hidden_size, hidden_size)
@@ -206,18 +242,55 @@ class AttnDecoderRNN(nn.Module):
 
         self.device = device
 
-    def forward(self, x_in, hidden, encoder_outputs):
-        assert x_in.size() == (1,)
+    def forward(self, decoder_input, hidden, encoder_outputs):
+        """
 
-        embedded = self.embedding(x_in).view(1, 1, -1)
+        Parameters
+        ----------
+        decoder_input: torch.Tensor
+            A single tokenized word. For the first step, this is SOS_token. Thereafter, it is the previous output
+            of the decoder.
+        hidden: torch.Tensor
+            For the first step, this is the final hidden state of the encoder. Thereafter, it is the previous decoder
+            hidden state.
+        encoder_outputs: torch.Tensor
+            The outputs of the encoder for every word of the sequence. Zero-padded to be max_length x n_hidden.
+
+        Returns
+        -------
+        output:
+
+        hidden:
+
+        attn_weights:
+
+        """
+        assert encoder_outputs.size() == (self.sizes.max_seq_length, self.sizes.hidden)
+
+        embedded = self.embedding(decoder_input).view(1, 1, -1)
         assert embedded.size() == (1, 1, self.sizes.hidden)
+        assert hidden.size() == (1, 1, self.sizes.hidden)
 
         embedded = self.dropout(embedded)
 
-        attn_weights = F.softmax(
-            self.attn(torch.cat((embedded[0], hidden[0]), dim=1)), dim=1)
+        # In Bahdanau, they use the concatenation of the forwards and backwards hidden states of the whole encoder,
+        # whereas this tutorial still uses the hidden state to feed the memory forwards. I suppose this makes it
+        # a smaller/faster model to train.
+        word_annotation = torch.cat((embedded[0], hidden[0]), dim=1)
+
+        # e_ij in Bahdanau, alignment model. For each word to be decoded, generate a vector which scores the positions
+        # on the encoder_outputs
+        alignment_model = self.attn(word_annotation)
+        assert alignment_model.size() == (1, self.sizes.max_seq_length)
+
+        # alpha_ij in Bahdanau. Softmax makes a sparse scoring of the encoder_outputs
+        attn_weights = F.softmax(alignment_model, dim=1)
         assert attn_weights.size() == (1, self.sizes.max_seq_length)
+
+        # c_i in Bahdanau, context vector for word i in the decoder output
         attn_applied = torch.bmm(attn_weights.unsqueeze(0), encoder_outputs.unsqueeze(0))
+
+        assert attn_applied.shape == (1, 1, self.sizes.hidden)
 
         output = torch.cat((embedded[0], attn_applied[0]), dim=1)
         output = self.attn_combine(output).unsqueeze(0)

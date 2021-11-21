@@ -1,7 +1,10 @@
 import pytest
 import torch
-
-from seq.seq2seq.model import SOS_token, EncoderRNN, DecoderRNN, AttnDecoderRNN, Lang, tensor_from_sentence
+import torch.nn as nn
+from torch import optim
+import random
+from seq.seq2seq.model import (SOS_token, EncoderRNN, DecoderRNN, AttnDecoderRNN, Lang, tensor_from_sentence,
+                               train, tensors_from_pair)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -100,3 +103,35 @@ class TestAttnDecoderRNN:
         assert decoder_output.size() == (1, self.output_lang.n_words)
         assert hidden.size() == (1, 1, n_hidden)
         assert decoder_attention.size() == (1, self.max_length)
+
+class TestTrain:
+    n_hidden = 5
+    max_length = 11
+    learning_rate=0.01
+    n_iters = 10
+
+
+    def prepare_data(self, make_langs):
+        self.pairs, self.input_lang, self.output_lang = make_langs
+
+    def create_encoders(self, make_langs):
+        self.prepare_data(make_langs)
+        encoder = EncoderRNN(self.input_lang.n_words, self.n_hidden, DEVICE)
+        attn_decoder = AttnDecoderRNN(self.n_hidden,
+                                      self.output_lang.n_words,
+                                      self.max_length,
+                                      DEVICE)
+        return encoder, attn_decoder
+
+    def test_train_without_teacher_forcing(self, make_langs):
+        encoder, decoder = self.create_encoders(make_langs)
+        encoder_optimizer = optim.SGD(encoder.parameters(), lr=self.learning_rate)
+        decoder_optimizer = optim.SGD(decoder.parameters(), lr=self.learning_rate)
+        input_tensor, target_tensor = tensors_from_pair(self.pairs[0], self.input_lang, self.output_lang, DEVICE)
+        criterion = nn.NLLLoss()
+
+        loss = train(input_tensor, target_tensor, encoder,
+                     decoder, encoder_optimizer, decoder_optimizer, criterion, 0,
+                     self.max_length,
+                     DEVICE)
+        assert isinstance(loss, float)
