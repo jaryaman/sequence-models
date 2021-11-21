@@ -190,7 +190,9 @@ Then return the output and loss.
 \end{figure}
 
 \subsection{Gated recurrent unit}
-A GRU is a type of RNN. For each element in the input sequence, each layer computes the following function:
+A GRU is a type of RNN. They are similar to LSTMs but have fewer parameters and can be easier to train. The key innovation is that they allow the network to control the amount of information which flows between consecutive time steps, and allows the network to forget. 
+
+For each element in the input sequence, each layer computes the following function:
 \begin{align}
 z_t &= \sigma(W_{iz}x_t + b_{iz} + W_{hz} h_{(t-1)} + b_{hz}) \label{eq:gru_update_gate_zt} \\
 r_t &= \sigma(W_{ir}x_t + b_{ir} + W_{hr}h_{(t-1)} + b_{hr}) \label{eq:gru_reset_gate_rt} \\
