@@ -1,3 +1,6 @@
+"""
+I abandoned this module when I realised that it's not quite the same model as the original Bahdanau paper
+"""
 import random
 from collections import namedtuple
 
