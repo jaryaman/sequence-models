@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,11 +12,11 @@ class EncoderDecoder(nn.Module):
 
     Parameters
     ----------
-    encoder: nn.Module
+    encoder: Encoder
         Encodes a batched sequence of padded word embeddings, returning output for each input sequence and
         final hidden state (concatenation of forwards and backwards final RNN states)
 
-    decoder: nn.Module
+    decoder: Decoder
 
     src_embed: nn.Module
         Embedding layer for the source
@@ -23,12 +24,12 @@ class EncoderDecoder(nn.Module):
     trg_embed: nn.Module
         Embedding layer for the target
 
-    generator: nn.Module
+    generator: Generator
         Layer to consume matrix of hidden states and output probabilities over the vocabulary TODO: Check
 
     """
 
-    def __init__(self, encoder, decoder, src_embed, trg_embed, generator):
+    def __init__(self, encoder: 'Encoder', decoder: 'Decoder', src_embed, trg_embed, generator: 'Generator'):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -92,7 +93,7 @@ class Encoder(nn.Module):
         probability being `dropout`.
     """
 
-    def __init__(self, input_size, hidden_size, num_layers=1, dropout=0.):
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int = 1, dropout: float = 0.):
         super().__init__()
         self.num_layers = num_layers
         self.rnn = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=dropout)
@@ -129,7 +130,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    """A conditional RNN decoder with attention TODO: conditional?
+    """A conditional RNN decoder with attention TODO: conditional? Generally need to understand this
 
     Parameters
     ----------
@@ -147,36 +148,172 @@ class Decoder(nn.Module):
         TODO
     """
 
-    def __init__(self, emb_size, hidden_size, attention, num_layers=1, dropout=0.5, bridge=True):
+    def __init__(self, emb_size, hidden_size, attention: 'BahdanauAttention', num_layers: int = 1, dropout: float = 0.5,
+                 bridge: bool = True):
         super().__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.attention = attention
         self.dropout = dropout
 
-        self.rnn = nn.GRU(emb_size + 2*hidden_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
+        self.rnn = nn.GRU(emb_size + 2 * hidden_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
 
         # to initialize from the final encoder state
-        self.bridge = nn.Linear(2*hidden_size, hidden_size, bias=True) if bridge else None
+        self.bridge = nn.Linear(2 * hidden_size, hidden_size, bias=True) if bridge else None
 
         self.dropout_layer = nn.Dropout(p=dropout)
-        self.pre_output_layer = nn.Linear(hidden_size + 2*hidden_size + emb_size, hidden_size, bias=False)
+        self.pre_output_layer = nn.Linear(hidden_size + 2 * hidden_size + emb_size, hidden_size, bias=False)
 
-    def forward_step(self, prev_embedded, encoder_hidden, src_mask, proj_key, hidden):
-        """Perform a single decoder step (1 word)
+    def forward_step(self, prev_embedded, encoder_hidden, src_mask, proj_key, hidden: torch.Tensor):
+        """Perform a single decoder step (1 word). This is used for inference.
 
         Parameters
         ----------
-        prev_embedded
-        encoder_hidden
-        src_mask
-        proj_key
-        hidden
+        prev_embedded:
+            TODO
+        encoder_hidden:
+            TODO
+        src_mask:
+            TODO
+        proj_key:
+            TODO
+        hidden:
+            TODO
 
         Returns
         -------
+        output:
+            TODO
+        hidden:
+            TODO
+        pre_output:
+            TODO
+
+        """
+        # compute context vector using attention mechanism
+        query = hidden[-1].unsqueeze(1)  # [num layers, B, D] -> [B, 1, D]
+        # TODO: explain
+        context, attn_probs = self.attention(
+            query=query, proj_key=proj_key, value=encoder_hidden, mask=src_mask
+        )
+
+        # update rnn hidden state
+        rnn_input = torch.cat([prev_embedded, context], dim=2)
+        output, hidden = self.rnn(rnn_input, hidden)
+
+        pre_output = torch.cat([prev_embedded, output, context], dim=2)
+        pre_output = self.dropout_layer(pre_output)
+        pre_output = self.pre_output_layer(pre_output)
+        return output, hidden, pre_output
+
+    def forward(self, trg_embed, encoder_hidden, encoder_final, src_mask, trg_mask, hidden=None, max_len=None):
+        """Unroll the decoder one step at a time. This is used for training.
+
+        Parameters
+        ----------
+        trg_embed:
+            Target embedding. We use this for teacher forcing
+        encoder_hidden:
+            TODO
+        encoder_final:
+            TODO
+        src_mask:
+            TODO
+        trg_mask:
+            TODO
+        hidden:
+            TODO
+        max_len:
+            TODO
 
         """
 
+        # the maximum number of steps to unroll the RNN
+        if max_len is None:
+            max_len = trg_mask.size(-1)
+
+        # initialize decoder hidden state
+        if hidden is None:
+            hidden = self.init_hidden(encoder_final)
+
+        # pre-compute projected encoder hidden states
+        # (the "keys" for the attention mechanism)
+        # this is only done for efficiency
+        proj_key = self.attention.key_layer(encoder_hidden)
+
+        # here we store all intermediate hidden states and pre-output vectors
+        decoder_states = []
+        pre_output_vectors = []
+
+        # unroll the decoder RNN for max_len steps
+        for i in range(max_len):
+            # During training, by using the target embedding rather than the prediction, we can get faster learning:
+            # this is called teacher forcing.
+            prev_embed = trg_embed[:, i].unsqueeze(1)
+            output, hidden, pre_output = self.forward_step(prev_embed, encoder_hidden, src_mask, proj_key, hidden)
+            decoder_states.append(output)
+            pre_output_vectors.append(pre_output)
+
+        decoder_states = torch.cat(decoder_states, dim=1)
+        pre_output_vectors = torch.cat(pre_output_vectors, dim=1)
+        return decoder_states, hidden, pre_output_vectors  # [B, N, D]
+
+    def init_hidden(self, encoder_final):
+        """Return initial decoder state, conditioned on the final encoder state"""
+
+        if encoder_final is None:
+            return None  # start with zeros
+
+        return torch.tanh(self.bridge(encoder_final))
 
 
+class BahdanauAttention:
+    """Implements Bahdanau (MLP) attention
+
+    Parameters
+    ----------
+    hidden_size:
+        TODO
+    key_size:
+        TODO
+    query_size:
+        TODO
+    """
+
+    def __init__(self, hidden_size, key_size: Optional[int] = None, query_size=None):
+        super().__init__()
+
+        key_size = 2 * hidden_size if key_size is None else key_size  # assume a bi-directional encoder
+        query_size = hidden_size if query_size is None else query_size
+
+        self.key_layer = nn.Linear(key_size, hidden_size, bias=False)
+        self.query_layer = nn.Linear(query_size, hidden_size, bias=False)
+        self.energy_layer = nn.Linear(hidden_size, 1, bias=False)
+
+        self.alphas = None  # for storing attention scores
+
+    def forward(self, query=None, proj_key=None, value=None, mask=None):
+        """
+        Parameters
+        ----------
+
+        """
+        assert mask is not None, "mask is required"  # TODO: ganky
+
+        # Project the query (decoder state)
+        query = self.query_layer(query)
+
+        # Calculate scores
+        scores = self.energy_layer(torch.tanh(query + proj_key))
+        scores = scores.squeeze(2).unsqueeze(1)
+
+        #  Mask invalid positions
+        scores.data.masked_fill_(mask == 0, -float('inf'))
+
+        # Turn scores to probabilities
+        alphas = F.softmax(scores, dim=-1)
+        self.alphas = alphas  # [B, 1, M]
+
+        context = torch.bmm(alphas, value)  # [B, 1, 2D]
+
+        return context, alphas
