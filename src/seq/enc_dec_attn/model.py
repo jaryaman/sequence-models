@@ -1,8 +1,74 @@
+import math
+from time import time
 from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
+from seq import USE_CUDA
+
+
+# *** globals ***
+
+
+# *** functions ***
+def make_model(src_vocab: int, tgt_vocab: int, emb_size=256, hidden_size=512, num_layers=1, dropout=0.1):
+    attention = BahdanauAttention(hidden_size)
+
+    model = EncoderDecoder(
+        Encoder(emb_size, hidden_size, num_layers=num_layers, dropout=dropout),
+        Decoder(emb_size, hidden_size, attention, num_layers=num_layers, dropout=dropout),
+        nn.Embedding(src_vocab, emb_size),
+        nn.Embedding(tgt_vocab, emb_size),
+        Generator(hidden_size, tgt_vocab)
+    )
+
+    return model.cude() if USE_CUDA else model
+
+
+def run_epoch(data_iter, model: 'EncoderDecoder', loss_compute, print_every=50):
+    start = time()
+    total_tokens = 0
+    total_loss = 0
+    print_tokens = 0
+
+    for i, batch in enumerate(data_iter, 1):
+        out, _, pre_output = model.forward(batch.src, batch.trg,
+                                           batch.src_mask, batch.trg_mask,
+                                           batch.src_lengths, batch.trg_lengths)
+
+        loss = loss_compute(pre_output, batch.trg_y, batch.nseqs)
+        total_loss += loss
+        total_tokens += batch.ntokens
+        print_tokens += batch.ntokens
+
+        if model.training and i % print_every == 0:
+            elapsed = time() - start
+            print(f"Epoch step: {i} Loss: {loss / batch.nseqs, print_tokens / elapsed}")
+            start = time()
+            print_tokens = 0
+
+    return math.exp(total_loss / float(total_tokens))
+
+
+# *** classes ***
+class SimpleLossCompute:
+    def __init__(self, generator, criterion, opt=None):
+        self.generator = generator
+        self.criterion = criterion
+        self.opt = opt
+
+    def __call__(self, x: torch.Tensor, y: torch.Tensor, norm):
+        x = self.generator(x)
+        loss = self.criterion(x.contiguous().view(-1, x.size(-1)),
+                              y.contiguous().view(-1)
+                              )
+        loss = loss / norm
+
+        if self.opt is not None:
+            loss.backward()
 
 
 class EncoderDecoder(nn.Module):
@@ -29,7 +95,8 @@ class EncoderDecoder(nn.Module):
 
     """
 
-    def __init__(self, encoder: 'Encoder', decoder: 'Decoder', src_embed, trg_embed, generator: 'Generator'):
+    def __init__(self, encoder: 'Encoder', decoder: 'Decoder', src_embed: nn.Embedding, trg_embed: nn.Embedding,
+                 generator: 'Generator'):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -37,7 +104,7 @@ class EncoderDecoder(nn.Module):
         self.trg_embed = trg_embed
         self.generator = generator
 
-    def forward(self, src, trg, src_mask, trg_mask, src_lengths):
+    def forward(self, src, trg, src_mask, trg_mask, src_lengths, trg_lengths):
         """Encode and decode the masked source and target sequences
 
         Parameters
@@ -148,7 +215,8 @@ class Decoder(nn.Module):
         TODO
     """
 
-    def __init__(self, emb_size, hidden_size, attention: 'BahdanauAttention', num_layers: int = 1, dropout: float = 0.5,
+    def __init__(self, emb_size: int, hidden_size: int, attention: 'BahdanauAttention', num_layers: int = 1,
+                 dropout: float = 0.5,
                  bridge: bool = True):
         super().__init__()
         self.hidden_size = hidden_size
