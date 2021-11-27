@@ -103,14 +103,9 @@ def print_examples(example_iter, model: 'EncoderDecoder', n=2, max_len=100, sos_
     count = 0
     print()
 
-    if src_vocab is not None and trg_vocab is not None:
-        src_eos_index = src_vocab.stoi[EOS_TOKEN]
-        trg_sos_index = trg_vocab.stoi[SOS_TOKEN]
-        trg_eos_index = trg_vocab.stoi[EOS_TOKEN]
-    else:
-        src_eos_index = None
-        trg_sos_index = 1
-        trg_eos_index = None
+    src_eos_index = None
+    trg_sos_index = 1
+    trg_eos_index = None
 
     for i, batch in enumerate(example_iter):
         src = batch.src.cpu().numpy()[0, :]
