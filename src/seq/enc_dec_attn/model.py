@@ -141,7 +141,7 @@ class SimpleLossCompute:
     def __call__(self, x: torch.Tensor, y: torch.Tensor, norm):
         x = self.generator(x)
         loss = self.criterion(x.contiguous().view(-1, x.size(-1)),
-                              y.contiguous().view(-1)
+                              y.contiguous().view(-1).long()
                               )
         loss = loss / norm
 
