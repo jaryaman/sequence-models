@@ -26,7 +26,7 @@ def make_model(src_vocab: int, tgt_vocab: int, emb_size=256, hidden_size=512, nu
         Generator(hidden_size, tgt_vocab)
     )
 
-    return model.cude() if USE_CUDA else model
+    return model.cuda() if USE_CUDA else model
 
 
 def run_epoch(data_iter, model: 'EncoderDecoder', loss_compute, print_every=50):
