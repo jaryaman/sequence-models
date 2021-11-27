@@ -422,7 +422,7 @@ class Decoder(nn.Module):
         return torch.tanh(self.bridge(encoder_final))
 
 
-class BahdanauAttention:
+class BahdanauAttention(nn.Module):
     """Implements Bahdanau (MLP) attention
 
     Parameters
@@ -436,7 +436,7 @@ class BahdanauAttention:
     """
 
     def __init__(self, hidden_size, key_size: Optional[int] = None, query_size=None):
-        super().__init__()
+        super(BahdanauAttention, self).__init__()
 
         key_size = 2 * hidden_size if key_size is None else key_size  # assume a bi-directional encoder
         query_size = hidden_size if query_size is None else query_size

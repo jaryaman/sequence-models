@@ -12,6 +12,7 @@ from seq.enc_dec_attn.model import make_model, run_epoch, SimpleLossCompute, pri
 from seq.enc_dec_attn.parse import Batch
 
 
+
 def data_gen(vocab_size=11, batch_size=16, num_batches=100, length=10, pad_index=0, sos_index=1):
     """Generate random data for a src-tgt copy task"""
     for i in range(num_batches):
@@ -75,4 +76,8 @@ def main():
 
 
 if __name__ == '__main__':
+    # In VS Code, before running
+    # cd sequence-models/src
+    # export PYTHONPATH=$(pwd)
+    # https://code.visualstudio.com/docs/python/environments#_use-of-the-pythonpath-variable
     main()

@@ -30,6 +30,9 @@ class TestLang:
         self.prepare_data(make_langs)
         assert self.input_lang.name == 'fra'
         assert self.input_lang.n_words == 11
+    
+    def test_foo():
+        assert False
 
 
 class TestEncoderRNN:
@@ -134,8 +137,4 @@ class TestTrain:
                      decoder, encoder_optimizer, decoder_optimizer, criterion, 0,
                      self.max_length,
                      DEVICE)
-        # assert isinstance(loss, float)
-        assert False
-    
-    def test_fails():
-        assert False
+        assert isinstance(loss, float)

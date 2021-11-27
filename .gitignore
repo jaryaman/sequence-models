@@ -2,3 +2,5 @@
 notebooks/data
 **/.pytest_cache
 .idea
+.vscode
+**/__pycache__
