@@ -1,6 +1,6 @@
 import math
 from time import time
-from typing import Optional
+from typing import Optional, Iterable
 
 import numpy as np
 import torch
@@ -9,27 +9,28 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from seq import USE_CUDA
-
+from seq.enc_dec_attn.parse import Batch
 
 # *** globals ***
 
 
 # *** functions ***
-def make_model(src_vocab: int, tgt_vocab: int, emb_size=256, hidden_size=512, num_layers=1, dropout=0.1):
+def make_model(src_vocab_size: int, tgt_vocab_size: int, emb_size: int = 256, hidden_size: int = 512,
+               num_layers: int = 1, dropout: float = 0.1):
     attention = BahdanauAttention(hidden_size)
 
     model = EncoderDecoder(
         Encoder(emb_size, hidden_size, num_layers=num_layers, dropout=dropout),
         Decoder(emb_size, hidden_size, attention, num_layers=num_layers, dropout=dropout),
-        nn.Embedding(src_vocab, emb_size),
-        nn.Embedding(tgt_vocab, emb_size),
-        Generator(hidden_size, tgt_vocab)
+        nn.Embedding(src_vocab_size, emb_size),
+        nn.Embedding(tgt_vocab_size, emb_size),
+        Generator(hidden_size, tgt_vocab_size)
     )
 
     return model.cuda() if USE_CUDA else model
 
 
-def run_epoch(data_iter, model: 'EncoderDecoder', loss_compute, print_every=50):
+def run_epoch(data_iter: Iterable['Batch'], model: 'EncoderDecoder', loss_compute, print_every=50):
     start = time()
     total_tokens = 0
     total_loss = 0
@@ -430,8 +431,8 @@ class BahdanauAttention(nn.Module):
         TODO
     """
 
-    def __init__(self, hidden_size, key_size: Optional[int] = None, query_size=None):
-        super(BahdanauAttention, self).__init__()
+    def __init__(self, hidden_size: int, key_size: Optional[int] = None, query_size=None):
+        super().__init__()
 
         key_size = 2 * hidden_size if key_size is None else key_size  # assume a bi-directional encoder
         query_size = hidden_size if query_size is None else query_size
