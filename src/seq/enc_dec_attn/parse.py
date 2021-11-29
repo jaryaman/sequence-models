@@ -1,6 +1,9 @@
-import torch
-from seq import USE_CUDA
 from typing import Tuple
+
+import torch
+
+from seq import USE_CUDA
+
 
 class Batch:
     """Object for holding source and target sentences, and their lengths and masks
@@ -18,7 +21,8 @@ class Batch:
     ----------
     src: torch.Tensor
         A batch of source sequences from a torch text iterator
-    src_lengths: TODO
+    src_lengths: list
+        A list of lengths of each sequence (neglecting padding)
     src_mask: torch.Tensor
         Boolean tensor of sequence elements that are not padding (source)
     nseqs: int
@@ -30,12 +34,12 @@ class Batch:
     def __init__(self, src: Tuple[torch.Tensor, list], trg: Tuple[torch.Tensor, list], pad_index=0):
         src, src_lengths = src
 
-        self.src = src
+        self.src = src  # type: torch.Tensor
         self.src_lengths = src_lengths
         self.src_mask = (src != pad_index).unsqueeze(-2)
         self.nseqs = src.size(0)
 
-        self.trg = None
+        self.trg = None  # type: torch.Tensor
         self.trg_y = None
         self.trg_mask = None
         self.trg_lengths = None

@@ -11,20 +11,24 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from seq import USE_CUDA
 from seq.enc_dec_attn.parse import Batch
 
+from collections import namedtuple
+
 # *** globals ***
+
+Sizes = namedtuple('Sizes', ['src_vocab', 'tgt_vocab', 'emb', 'hidden', 'num_layers', 'batch', 'num_batches'])
 
 
 # *** functions ***
-def make_model(src_vocab_size: int, tgt_vocab_size: int, emb_size: int = 256, hidden_size: int = 512,
-               num_layers: int = 1, dropout: float = 0.1):
-    attention = BahdanauAttention(hidden_size)
+def make_model(sizes: Sizes, dropout: float = 0.1):
+    attention = BahdanauAttention(sizes.hidden)
 
     model = EncoderDecoder(
-        Encoder(emb_size, hidden_size, num_layers=num_layers, dropout=dropout),
-        Decoder(emb_size, hidden_size, attention, num_layers=num_layers, dropout=dropout),
-        nn.Embedding(src_vocab_size, emb_size),
-        nn.Embedding(tgt_vocab_size, emb_size),
-        Generator(hidden_size, tgt_vocab_size)
+        Encoder(sizes.emb, sizes.hidden, sizes, num_layers=sizes.num_layers, dropout=dropout),
+        Decoder(sizes.emb, sizes.hidden, attention, sizes, num_layers=sizes.num_layers, dropout=dropout),
+        nn.Embedding(sizes.src_vocab, sizes.emb),
+        nn.Embedding(sizes.tgt_vocab, sizes.emb),
+        Generator(sizes.hidden, sizes.tgt_vocab, sizes),
+        sizes
     )
 
     return model.cuda() if USE_CUDA else model
@@ -179,35 +183,39 @@ class EncoderDecoder(nn.Module):
     """
 
     def __init__(self, encoder: 'Encoder', decoder: 'Decoder', src_embed: nn.Embedding, trg_embed: nn.Embedding,
-                 generator: 'Generator'):
+                 generator: 'Generator', sizes: 'Sizes'):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.src_embed = src_embed
         self.trg_embed = trg_embed
         self.generator = generator
+        self.sizes = sizes
 
     def forward(self, src, trg, src_mask, trg_mask, src_lengths, trg_lengths):
         """Encode and decode the masked source and target sequences
 
         Parameters
         ----------
-        src:
-            Batched input sequence embeddings, shape [batch size, sequence length, input_size]
-        trg:
-            TODO
-        src_mask:
-            TODO
-        trg_mask:
-            TODO
-        src_lengths:
-            Sequence lengths for each input source sequence
+        src: torch.Tensor
+            Batched input sequence embeddings, shape [batch size, sequence length]
+        trg: torch.Tensor
+            Batched target sequence embeddings, shape [batch size, sequence length]
+        src_mask: torch.Tensor
+            Boolean array of elements that are not padding (src)
+        trg_mask: torch.Tensor
+            Boolean array of elements that are not padding (trg)
+        src_lengths: list
+             A list of lengths of each src sequence (neglecting padding)
+        trg_lengths: list
+            A list of lengths of each trg sequence (neglecting padding)
 
         """
         encoder_hidden, encoder_final = self.encode(src, src_mask, src_lengths)
         return self.decode(encoder_hidden, encoder_final, src_mask, trg, trg_mask)
 
     def encode(self, src, src_mask, src_lengths):
+        #assert src.shape ==
         return self.encoder(self.src_embed(src), src_mask, src_lengths)
 
     def decode(self, encoder_hidden, encoder_final, src_mask, trg, trg_mask, decoder_hidden=None):
@@ -218,9 +226,10 @@ class EncoderDecoder(nn.Module):
 class Generator(nn.Module):
     """Define standard linear + softmax generation step to create probabilities"""
 
-    def __init__(self, hidden_size, vocab_size):
+    def __init__(self, hidden_size, vocab_size, sizes):
         super().__init__()
         self.proj = nn.Linear(hidden_size, vocab_size, bias=False)
+        self.sizes = sizes
 
     def forward(self, x):
         return F.log_softmax(self.proj(x), dim=-1)
@@ -243,10 +252,11 @@ class Encoder(nn.Module):
         probability being `dropout`.
     """
 
-    def __init__(self, input_size: int, hidden_size: int, num_layers: int = 1, dropout: float = 0.):
+    def __init__(self, input_size: int, hidden_size: int, sizes: 'Sizes', num_layers: int = 1, dropout: float = 0.):
         super().__init__()
         self.num_layers = num_layers
         self.rnn = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=dropout)
+        self.sizes = sizes
 
     def forward(self, x, mask, lengths):
         """Applies a bidirectional GRU to a sequence of embeddings
@@ -263,6 +273,8 @@ class Encoder(nn.Module):
             iterating through the corresponding number of elements of the sequence.
 
         """
+        assert x.shape[-1] == self.sizes.emb
+
         # Packed padded sequence allows us to pass mini-batches to an RNN, and have the RNN stop updating the hidden
         # state once we have reached the end of the sequence. Has greater GPU efficiency.
         packed = pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=True)
@@ -298,7 +310,8 @@ class Decoder(nn.Module):
         TODO
     """
 
-    def __init__(self, emb_size: int, hidden_size: int, attention: 'BahdanauAttention', num_layers: int = 1,
+    def __init__(self, emb_size: int, hidden_size: int, attention: 'BahdanauAttention', sizes: 'Sizes',
+                 num_layers: int = 1,
                  dropout: float = 0.5,
                  bridge: bool = True):
         super().__init__()
@@ -306,6 +319,7 @@ class Decoder(nn.Module):
         self.num_layers = num_layers
         self.attention = attention
         self.dropout = dropout
+        self.sizes = sizes
 
         self.rnn = nn.GRU(emb_size + 2 * hidden_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
 
