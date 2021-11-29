@@ -223,6 +223,31 @@ class EncoderDecoder(nn.Module):
         return self.encoder(self.src_embed(src), src_lengths)
 
     def decode(self, encoder_hidden, encoder_final, src_mask, trg, trg_mask, decoder_hidden=None):
+        """
+
+        Parameters
+        ----------
+        encoder_hidden: torch.Tensor
+            Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t
+        encoder_final: torch.Tensor
+            Hidden state at the final step t=L, where the forwards and backwards hidden states of the
+            bidirectional GRU are concatenated together
+        src_mask:
+            Boolean array of elements that are not padding (src)
+        trg: torch.Tensor
+            Batched target sequence embeddings, shape [batch size, sequence length]
+        trg_mask: torch.Tensor
+            Boolean array of elements that are not padding (trg)
+        decoder_hidden: torch.Tensor
+            TODO
+
+        Returns
+        -------
+            TODO
+        """
+        if self.training:
+            assert encoder_hidden.shape == (self.sizes.batch, self.sizes.sequence_length - 1, 2 * self.sizes.hidden)
+
         return self.decoder(self.trg_embed(trg), encoder_hidden, encoder_final, src_mask, trg_mask,
                             hidden=decoder_hidden)
 
@@ -274,6 +299,13 @@ class Encoder(nn.Module):
             List of sequence lengths of each batch element. It is assumed that sequences are padded after
             iterating through the corresponding number of elements of the sequence.
 
+        Returns
+        -------
+        output: torch.Tensor
+            Hidden state (h_t) from the last layer of the GRU, for each t
+        h_final: torch.Tensor
+            Hidden state at the final step t=L, where the forwards and backwards hidden states of the
+            bidirectional GRU are concatenated together
         """
         if self.training:
             assert x.shape == (self.sizes.batch, self.sizes.sequence_length - 1, self.sizes.emb)
@@ -281,24 +313,24 @@ class Encoder(nn.Module):
         # Packed padded sequence allows us to pass mini-batches to an RNN, and have the RNN stop updating the hidden
         # state once we have reached the end of the sequence. Has greater GPU efficiency.
         packed = pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=True)
-        output, final = self.rnn(packed)
+        output, h_final = self.rnn(packed)
         output, _ = pad_packed_sequence(output, batch_first=True)  # inverse of pack_padded_sequence
 
         if self.training:
             # 2* because bidirectional, -1 because src strips out the first (SOS) character
             assert output.shape == (self.sizes.batch, self.sizes.sequence_length - 1, 2 * self.sizes.hidden)
-            assert final.shape == (2 * self.num_layers, self.sizes.batch, self.sizes.hidden)
+            assert h_final.shape == (2 * self.num_layers, self.sizes.batch, self.sizes.hidden)
 
         # Concatenate the final states for both RNN directions. This is a summary of the entire sentence and will
         # be used as input to the decoder.
-        fwd_final = final[0:final.size(0):2]
-        bwd_final = final[1:final.size(0):2]
-        final = torch.cat([fwd_final, bwd_final], dim=2)
+        fwd_final = h_final[0:h_final.size(0):2]
+        bwd_final = h_final[1:h_final.size(0):2]
+        h_final = torch.cat([fwd_final, bwd_final], dim=2)
 
         if self.training:
-            assert final.shape == (1, self.sizes.batch, self.sizes.hidden * 2)
+            assert h_final.shape == (1, self.sizes.batch, self.sizes.hidden * 2)
 
-        return output, final
+        return output, h_final
 
 
 class Decoder(nn.Module):
