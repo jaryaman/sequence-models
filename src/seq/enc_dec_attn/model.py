@@ -1,4 +1,5 @@
 import math
+from collections import namedtuple
 from time import time
 from typing import Optional, Iterable
 
@@ -10,8 +11,6 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from seq import USE_CUDA
 from seq.enc_dec_attn.parse import Batch
-
-from collections import namedtuple
 
 # *** globals ***
 
@@ -42,7 +41,8 @@ def run_epoch(data_iter: Iterable['Batch'], model: 'EncoderDecoder', loss_comput
     print_tokens = 0
 
     for i, batch in enumerate(data_iter, 1):
-        out, _, pre_output = model.forward(batch.src, batch.trg,
+        out, _, pre_output = model.forward(batch.src,
+                                           batch.trg,
                                            batch.src_mask, batch.trg_mask,
                                            batch.src_lengths, batch.trg_lengths)
 
@@ -193,7 +193,8 @@ class EncoderDecoder(nn.Module):
         self.generator = generator
         self.sizes = sizes
 
-    def forward(self, src, trg, src_mask, trg_mask, src_lengths, trg_lengths):
+    def forward(self, src: torch.Tensor, trg: torch.Tensor, src_mask: torch.Tensor, trg_mask: torch.Tensor,
+                src_lengths: torch.Tensor, trg_lengths: torch.Tensor):
         """Encode and decode the masked source and target sequences
 
         Parameters
@@ -217,7 +218,8 @@ class EncoderDecoder(nn.Module):
 
     def encode(self, src, src_lengths):
         if self.training:
-            assert src.shape == (self.sizes.batch, self.sizes.sequence_length - 1)  # -1 because the source lacks the SOS token
+            assert src.shape == (
+                self.sizes.batch, self.sizes.sequence_length - 1)  # -1 because the source lacks the SOS token
         return self.encoder(self.src_embed(src), src_lengths)
 
     def decode(self, encoder_hidden, encoder_final, src_mask, trg, trg_mask, decoder_hidden=None):
@@ -282,20 +284,19 @@ class Encoder(nn.Module):
         output, final = self.rnn(packed)
         output, _ = pad_packed_sequence(output, batch_first=True)  # inverse of pack_padded_sequence
 
-
         if self.training:
-            # 2* because bidirectional
-            assert output.shape == (self.sizes.batch, self.sizes.sequence_length - 1, 2*self.sizes.hidden)
-            assert final.shape == (2*self.num_layers, self.sizes.batch, self.sizes.hidden)
+            # 2* because bidirectional, -1 because src strips out the first (SOS) character
+            assert output.shape == (self.sizes.batch, self.sizes.sequence_length - 1, 2 * self.sizes.hidden)
+            assert final.shape == (2 * self.num_layers, self.sizes.batch, self.sizes.hidden)
 
         # Concatenate the final states for both RNN directions. This is a summary of the entire sentence and will
         # be used as input to the decoder.
         fwd_final = final[0:final.size(0):2]
         bwd_final = final[1:final.size(0):2]
-        final = torch.cat([fwd_final, bwd_final], dim=2)  # TODO: check dim
+        final = torch.cat([fwd_final, bwd_final], dim=2)
 
         if self.training:
-            assert final.shape == (1, self.sizes.batch, self.sizes.hidden*2)
+            assert final.shape == (1, self.sizes.batch, self.sizes.hidden * 2)
 
         return output, final
 

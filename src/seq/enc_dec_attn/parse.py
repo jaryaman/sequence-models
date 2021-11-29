@@ -10,9 +10,9 @@ class Batch:
 
     Parameters
     ----------
-    src: Tuple[torch.Tensor, list]
+    src_tup: Tuple[torch.Tensor, list]
         Tuple of sequences and corresponding sequence lengths, for source sequences
-    trg: Tuple[torch.Tensor, list]
+    trg_tup: Tuple[torch.Tensor, list]
         Tuple of sequences and corresponding sequence lengths, for target sequences
     pad_index: int
         Character used for padding
@@ -31,22 +31,22 @@ class Batch:
         A batch of target sequences from a torch text iterator, corresponding to src
     """
 
-    def __init__(self, src: Tuple[torch.Tensor, list], trg: Tuple[torch.Tensor, list], pad_index=0):
-        src, src_lengths = src
+    def __init__(self, src_tup: Tuple[torch.Tensor, list], trg_tup: Tuple[torch.Tensor, list], pad_index=0):
+        src, src_lengths = src_tup
 
-        self.src = src  # type: torch.Tensor
+        self.src = src
         self.src_lengths = src_lengths
         self.src_mask = (src != pad_index).unsqueeze(-2)
         self.nseqs = src.size(0)
 
-        self.trg = None  # type: torch.Tensor
+        self.trg = None
         self.trg_y = None
         self.trg_mask = None
         self.trg_lengths = None
         self.ntokens = None
 
-        if trg is not None:
-            trg, trg_lengths = trg
+        if trg_tup is not None:
+            trg, trg_lengths = trg_tup
             self.trg = trg[:, :-1]
             self.trg_lengths = trg_lengths
             self.trg_y = trg[:, 1:]
@@ -57,7 +57,7 @@ class Batch:
             self.src = self.src.cuda()
             self.src_mask = self.src_mask.cuda()
 
-            if trg is not None:
+            if trg_tup is not None:
                 self.trg = self.trg.cuda()
                 self.trg_y = self.trg_y.cuda()
                 self.trg_mask = self.trg_mask.cuda()
