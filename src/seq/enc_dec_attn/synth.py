@@ -12,7 +12,7 @@ from seq.enc_dec_attn.model import make_model, run_epoch, SimpleLossCompute, pri
 from seq.enc_dec_attn.parse import Batch
 
 
-def data_gen(vocab_size=11, batch_size=16, num_batches=100, length=10, pad_index=0, sos_index=1):
+def data_gen(vocab_size, batch_size, num_batches, length, pad_index=0, sos_index=1):
     """Generate random data for a src-tgt copy task"""
     for i in range(num_batches):
         data = torch.from_numpy(
@@ -37,18 +37,21 @@ def train_copy_task():
     num_layers = 1
     dropout = 0.1
     criterion = nn.NLLLoss(reduction="sum", ignore_index=0)
+    sequence_length = 10
+
     sizes_train = Sizes(src_vocab=vocab_size,
                         tgt_vocab=vocab_size,
                         emb=emb_size,
                         hidden=hidden_size,
                         num_layers=num_layers,
                         batch=batch_size,
-                        num_batches=num_batches
+                        num_batches=num_batches,
+                        sequence_length=sequence_length
                         )
 
     model = make_model(sizes_train, dropout=dropout)
     optim = torch.optim.Adam(model.parameters(), lr=0.0003)
-    eval_data = list(data_gen(vocab_size=vocab_size, batch_size=1, num_batches=100))
+    eval_data = list(data_gen(vocab_size, 1, num_batches, sequence_length))
 
     dev_perplexities = []
 
@@ -60,7 +63,7 @@ def train_copy_task():
 
         # train
         model.train()
-        data = data_gen(vocab_size=vocab_size, batch_size=batch_size, num_batches=100)
+        data = data_gen(vocab_size, batch_size, sizes_train.num_batches, sequence_length)
         run_epoch(data, model,
                   SimpleLossCompute(model.generator, criterion, optim))
 

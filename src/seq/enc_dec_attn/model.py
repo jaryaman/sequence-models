@@ -15,7 +15,8 @@ from collections import namedtuple
 
 # *** globals ***
 
-Sizes = namedtuple('Sizes', ['src_vocab', 'tgt_vocab', 'emb', 'hidden', 'num_layers', 'batch', 'num_batches'])
+Sizes = namedtuple('Sizes',
+                   ['src_vocab', 'tgt_vocab', 'emb', 'hidden', 'num_layers', 'batch', 'num_batches', 'sequence_length'])
 
 
 # *** functions ***
@@ -62,7 +63,7 @@ def run_epoch(data_iter: Iterable['Batch'], model: 'EncoderDecoder', loss_comput
 def greedy_decode(model: 'EncoderDecoder', src, src_mask, src_lengths, max_len=100, sos_index=1, eos_index=None):
     """Greedily decode a sentence by choosing the token with maximum probability at each step"""
     with torch.no_grad():
-        encoder_hidden, encoder_final = model.encode(src, src_mask, src_lengths)
+        encoder_hidden, encoder_final = model.encode(src, src_lengths)
         prev_y = torch.ones(1, 1).fill_(sos_index).type_as(src)
         trg_mask = torch.ones_like(prev_y)
 
@@ -211,12 +212,13 @@ class EncoderDecoder(nn.Module):
             A list of lengths of each trg sequence (neglecting padding)
 
         """
-        encoder_hidden, encoder_final = self.encode(src, src_mask, src_lengths)
+        encoder_hidden, encoder_final = self.encode(src, src_lengths)
         return self.decode(encoder_hidden, encoder_final, src_mask, trg, trg_mask)
 
-    def encode(self, src, src_mask, src_lengths):
-        #assert src.shape ==
-        return self.encoder(self.src_embed(src), src_mask, src_lengths)
+    def encode(self, src, src_lengths):
+        if self.training:
+            assert src.shape == (self.sizes.batch, self.sizes.sequence_length - 1)  # -1 because the source lacks the SOS token
+        return self.encoder(self.src_embed(src), src_lengths)
 
     def decode(self, encoder_hidden, encoder_final, src_mask, trg, trg_mask, decoder_hidden=None):
         return self.decoder(self.trg_embed(trg), encoder_hidden, encoder_final, src_mask, trg_mask,
@@ -258,7 +260,7 @@ class Encoder(nn.Module):
         self.rnn = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, bidirectional=True, dropout=dropout)
         self.sizes = sizes
 
-    def forward(self, x, mask, lengths):
+    def forward(self, x, lengths):
         """Applies a bidirectional GRU to a sequence of embeddings
 
         Parameters
@@ -266,14 +268,13 @@ class Encoder(nn.Module):
         x:
             Padded input batch of variable length sequences. Must be sorted by length in decreasing order.
             Dimensions [batch, time, dim].
-        mask:
-            TODO: Doesn't get used!
         lengths: torch.Tensor or list
             List of sequence lengths of each batch element. It is assumed that sequences are padded after
             iterating through the corresponding number of elements of the sequence.
 
         """
-        assert x.shape[-1] == self.sizes.emb
+        if self.training:
+            assert x.shape == (self.sizes.batch, self.sizes.sequence_length - 1, self.sizes.emb)
 
         # Packed padded sequence allows us to pass mini-batches to an RNN, and have the RNN stop updating the hidden
         # state once we have reached the end of the sequence. Has greater GPU efficiency.
@@ -281,12 +282,20 @@ class Encoder(nn.Module):
         output, final = self.rnn(packed)
         output, _ = pad_packed_sequence(output, batch_first=True)  # inverse of pack_padded_sequence
 
+
+        if self.training:
+            # 2* because bidirectional
+            assert output.shape == (self.sizes.batch, self.sizes.sequence_length - 1, 2*self.sizes.hidden)
+            assert final.shape == (2*self.num_layers, self.sizes.batch, self.sizes.hidden)
+
         # Concatenate the final states for both RNN directions. This is a summary of the entire sentence and will
         # be used as input to the decoder.
-        # TODO: Check, not sure about this.
         fwd_final = final[0:final.size(0):2]
         bwd_final = final[1:final.size(0):2]
         final = torch.cat([fwd_final, bwd_final], dim=2)  # TODO: check dim
+
+        if self.training:
+            assert final.shape == (1, self.sizes.batch, self.sizes.hidden*2)
 
         return output, final
 
