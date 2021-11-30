@@ -20,7 +20,7 @@ Sizes = namedtuple('Sizes',
 
 # *** functions ***
 def make_model(sizes: Sizes, dropout: float = 0.1):
-    attention = BahdanauAttention(sizes.hidden)
+    attention = BahdanauAttention(sizes)
 
     model = EncoderDecoder(
         Encoder(sizes.emb, sizes.hidden, sizes, num_layers=sizes.num_layers, dropout=dropout),
@@ -217,37 +217,14 @@ class EncoderDecoder(nn.Module):
         return self.decode(encoder_hidden, encoder_final, src_mask, trg, trg_mask)
 
     def encode(self, src, src_lengths):
-        if self.training:
-            assert src.shape == (
-                self.sizes.batch, self.sizes.sequence_length - 1)  # -1 because the source lacks the SOS token
+        """See Encoder.forward for details"""
+        # -1 because the source lacks the SOS token
+        if self.training: assert src.shape == (self.sizes.batch, self.sizes.sequence_length - 1)
         return self.encoder(self.src_embed(src), src_lengths)
 
-    def decode(self, encoder_hidden, encoder_final, src_mask, trg, trg_mask, decoder_hidden=None):
-        """
-
-        Parameters
-        ----------
-        encoder_hidden: torch.Tensor
-            Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t
-        encoder_final: torch.Tensor
-            Hidden state at the final step t=L, where the forwards and backwards hidden states of the
-            bidirectional GRU are concatenated together
-        src_mask:
-            Boolean array of elements that are not padding (src)
-        trg: torch.Tensor
-            Batched target sequence embeddings, shape [batch size, sequence length]
-        trg_mask: torch.Tensor
-            Boolean array of elements that are not padding (trg)
-        decoder_hidden: torch.Tensor
-            TODO
-
-        Returns
-        -------
-            TODO
-        """
-        if self.training:
-            assert encoder_hidden.shape == (self.sizes.batch, self.sizes.sequence_length - 1, 2 * self.sizes.hidden)
-
+    def decode(self, encoder_hidden: torch.Tensor, encoder_final: torch.Tensor, src_mask: torch.Tensor,
+               trg: torch.Tensor, trg_mask: torch.Tensor, decoder_hidden=None):
+        """See Decoder.forward for details"""
         return self.decoder(self.trg_embed(trg), encoder_hidden, encoder_final, src_mask, trg_mask,
                             hidden=decoder_hidden)
 
@@ -398,8 +375,7 @@ class Decoder(nn.Module):
 
         """
         # compute context vector using attention mechanism
-        query = hidden[-1].unsqueeze(1)  # [num layers, B, D] -> [B, 1, D]
-        # TODO: explain
+        query = hidden[-1].unsqueeze(1)  # [1, B, D] -> [B, 1, D]
         context, attn_probs = self.attention(
             query=query, proj_key=proj_key, value=encoder_hidden, mask=src_mask
         )
@@ -413,27 +389,33 @@ class Decoder(nn.Module):
         pre_output = self.pre_output_layer(pre_output)
         return output, hidden, pre_output
 
-    def forward(self, trg_embed, encoder_hidden, encoder_final, src_mask, trg_mask, hidden=None, max_len=None):
+    def forward(self, trg_embed: torch.Tensor, encoder_hidden: torch.Tensor, encoder_final: torch.Tensor,
+                src_mask: torch.Tensor, trg_mask: torch.Tensor, hidden=None, max_len=None):
         """Unroll the decoder one step at a time. This is used for training.
 
         Parameters
         ----------
-        trg_embed:
+        trg_embed: torch.Tensor
             Target embedding. We use this for teacher forcing
-        encoder_hidden:
-            TODO
+        encoder_hidden: torch.Tensor
+            Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t
         encoder_final:
-            TODO
+            Hidden state at the final step t=L, where the forwards and backwards hidden states of the
+            bidirectional GRU are concatenated together
         src_mask:
-            TODO
+            Boolean array of elements that are not padding (src)
         trg_mask:
-            TODO
-        hidden:
-            TODO
+            Boolean array of elements that are not padding (trg)
+        hidden: torch.Tensor
+            Decoder hidden state (s_i in Bahdanau)
         max_len:
             TODO
 
         """
+        if self.training:
+            assert trg_embed.shape == (self.sizes.batch, self.sizes.sequence_length - 1, self.sizes.emb)
+            assert encoder_hidden.shape == (self.sizes.batch, self.sizes.sequence_length - 1, 2 * self.sizes.hidden)
+            assert encoder_final.shape == (1, self.sizes.batch, self.sizes.hidden * 2)
 
         # the maximum number of steps to unroll the RNN
         if max_len is None:
@@ -442,6 +424,8 @@ class Decoder(nn.Module):
         # initialize decoder hidden state
         if hidden is None:
             hidden = self.init_hidden(encoder_final)
+
+        if self.training:  assert hidden.shape == (1, self.sizes.batch, self.sizes.hidden)
 
         # pre-compute projected encoder hidden states
         # (the "keys" for the attention mechanism)
@@ -479,30 +463,43 @@ class BahdanauAttention(nn.Module):
 
     Parameters
     ----------
-    hidden_size:
-        TODO
+    sizes: Sizes
+        A namedtuple of model sizes. Needs only hidden size
     key_size:
         TODO
     query_size:
         TODO
     """
 
-    def __init__(self, hidden_size: int, key_size: Optional[int] = None, query_size=None):
+    def __init__(self, sizes: Sizes, key_size: Optional[int] = None, query_size=None):
         super().__init__()
+        self.sizes = sizes
 
-        key_size = 2 * hidden_size if key_size is None else key_size  # assume a bi-directional encoder
-        query_size = hidden_size if query_size is None else query_size
+        key_size = 2 * sizes.hidden if key_size is None else key_size  # assume a bi-directional encoder
+        query_size = sizes.hidden if query_size is None else query_size
 
-        self.key_layer = nn.Linear(key_size, hidden_size, bias=False)
-        self.query_layer = nn.Linear(query_size, hidden_size, bias=False)
-        self.energy_layer = nn.Linear(hidden_size, 1, bias=False)
+        self.key_layer = nn.Linear(key_size, sizes.hidden, bias=False)
+        self.query_layer = nn.Linear(query_size, sizes.hidden, bias=False)
+        self.energy_layer = nn.Linear(sizes.hidden, 1, bias=False)
 
         self.alphas = None  # for storing attention scores
 
     def forward(self, query=None, proj_key=None, value=None, mask=None):
         """
+
         Parameters
         ----------
+        query:
+            The current hidden state of the decoder
+        proj_key:
+            TODO
+        value:
+            Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t
+        mask:
+            TODO
+
+        Returns
+        -------
 
         """
         assert mask is not None, "mask is required"  # TODO: ganky
@@ -519,8 +516,12 @@ class BahdanauAttention(nn.Module):
 
         # Turn scores to probabilities
         alphas = F.softmax(scores, dim=-1)
-        self.alphas = alphas  # [B, 1, M]
+        self.alphas = alphas   # alpha_ij in the paper
 
-        context = torch.bmm(alphas, value)  # [B, 1, 2D]
+        context = torch.bmm(alphas, value)
+
+        if self.training:
+            assert context.shape == (self.sizes.batch, 1, 2 * self.sizes.hidden)
+            assert alphas.shape == (self.sizes.batch, 1, self.sizes.sequence_length - 1)
 
         return context, alphas
