@@ -1,3 +1,8 @@
+"""
+Based on https://bastings.github.io/annotated_encoder_decoder/
+See https://arxiv.org/abs/1409.0473
+"""
+
 import math
 from collections import namedtuple
 from time import time
@@ -427,9 +432,10 @@ class Decoder(nn.Module):
 
         if self.training:  assert hidden.shape == (1, self.sizes.batch, self.sizes.hidden)
 
-        # pre-compute projected encoder hidden states
+        # Since U_a h_j (see Bahdanau) does not depend on the particular word being decoded, we can
+        # pre-compute the projected encoder hidden states in advance to minimize
+        # computational cost.
         # (the "keys" for the attention mechanism)
-        # this is only done for efficiency
         proj_key = self.attention.key_layer(encoder_hidden)
 
         # here we store all intermediate hidden states and pre-output vectors
@@ -490,34 +496,55 @@ class BahdanauAttention(nn.Module):
         Parameters
         ----------
         query:
-            The current hidden state of the decoder
+            The previous hidden state of the decoder, s_{i-1}
         proj_key:
-            TODO
+            Hidden state, for each step in the input sequence t. This has been projected via a linear transformation
+            from 2 * hidden_size, down to hidden, in the final dimension, U_a h_j in Bahdanau. These are the "keys" of
+            an attention layer h_j in Bahdanau.
         value:
-            Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t
+            Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t. The object
+            to be reweighted in calculating the context.
         mask:
-            TODO
+            Boolean tensor of non-padding elements of sequences
 
         Returns
         -------
+        context: torch.Tensor
+            A vector, which uses an attention mechanism to reweight the hidden states (values)
+        alphas: torch.Tensor
+            Probability that target word i is aligned to, or translated from, source word j
 
         """
-        assert mask is not None, "mask is required"  # TODO: ganky
+        assert mask is not None, "mask is required"
 
-        # Project the query (decoder state)
+        if self.training:
+            assert query.shape == (self.sizes.batch, 1, self.sizes.hidden)
+            assert proj_key.shape == (self.sizes.batch, self.sizes.sequence_length - 1, self.sizes.hidden)
+            assert value.shape == (self.sizes.batch, self.sizes.sequence_length - 1, 2 * self.sizes.hidden)
+            assert mask.shape == (self.sizes.batch, 1, self.sizes.sequence_length - 1)
+
+        # Project the query (decoder state), W_a s_{i-1}.
         query = self.query_layer(query)
 
-        # Calculate scores
+        # Calculate attention energies (scores) via an alignment model
+        # e_ij = a(s_{i-1}, h_j) = v_a^T tanh(W_a s_{i-1} + U_z h_j)
         scores = self.energy_layer(torch.tanh(query + proj_key))
+        if self.training: assert scores.shape == (self.sizes.batch, self.sizes.sequence_length - 1, 1)
+
         scores = scores.squeeze(2).unsqueeze(1)
+        if self.training: assert scores.shape == (self.sizes.batch, 1, self.sizes.sequence_length - 1)
 
         #  Mask invalid positions
         scores.data.masked_fill_(mask == 0, -float('inf'))
 
-        # Turn scores to probabilities
+        # Turn scores to probabilities.
+        # alpha_ij can be interpreted as the probability that target word i is aligned to, or translated from,
+        # source word j
         alphas = F.softmax(scores, dim=-1)
-        self.alphas = alphas   # alpha_ij in the paper
+        self.alphas = alphas
+        if self.training: assert alphas.shape == (self.sizes.batch, 1, self.sizes.sequence_length - 1)
 
+        # compute weighted sum of the "annotations" of every step of the input
         context = torch.bmm(alphas, value)
 
         if self.training:
