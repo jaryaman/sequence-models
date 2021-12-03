@@ -413,8 +413,8 @@ class Decoder(nn.Module):
             Boolean array of elements that are not padding (trg)
         hidden: torch.Tensor
             Decoder hidden state (s_i in Bahdanau)
-        max_len:
-            TODO
+        max_len: int, optional
+            Maximum length of any sequence. If None, assumed to be the final dimension of trg_mask.
 
         """
         if self.training:
@@ -471,13 +471,13 @@ class BahdanauAttention(nn.Module):
     ----------
     sizes: Sizes
         A namedtuple of model sizes. Needs only hidden size
-    key_size:
-        TODO
+    key_size: int
+        Size of the key hidden state for the matrix U_a in U_a h_j of the alignment model
     query_size:
-        TODO
+        Size of the query hidden state for the matrix W_a s_{i-1} of the alignment model
     """
 
-    def __init__(self, sizes: Sizes, key_size: Optional[int] = None, query_size=None):
+    def __init__(self, sizes: Sizes, key_size: Optional[int] = None, query_size: Optional[int] = None):
         super().__init__()
         self.sizes = sizes
 
@@ -488,7 +488,7 @@ class BahdanauAttention(nn.Module):
         self.query_layer = nn.Linear(query_size, sizes.hidden, bias=False)
         self.energy_layer = nn.Linear(sizes.hidden, 1, bias=False)
 
-        self.alphas = None  # for storing attention scores
+        self.alphas = None  # for storing attention probabilities
 
     def forward(self, mask: torch.Tensor, query: torch.Tensor, proj_key: torch.Tensor, value: torch.Tensor):
         """
