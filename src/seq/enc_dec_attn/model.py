@@ -382,7 +382,7 @@ class Decoder(nn.Module):
         # compute context vector using attention mechanism
         query = hidden[-1].unsqueeze(1)  # [1, B, D] -> [B, 1, D]
         context, attn_probs = self.attention(
-            query=query, proj_key=proj_key, value=encoder_hidden, mask=src_mask
+            src_mask, query=query, proj_key=proj_key, value=encoder_hidden,
         )
 
         # update rnn hidden state
@@ -490,22 +490,22 @@ class BahdanauAttention(nn.Module):
 
         self.alphas = None  # for storing attention scores
 
-    def forward(self, query=None, proj_key=None, value=None, mask=None):
+    def forward(self, mask: torch.Tensor, query: torch.Tensor, proj_key: torch.Tensor, value: torch.Tensor):
         """
 
         Parameters
         ----------
-        query:
+        mask: torch.Tensor
+            Boolean tensor of non-padding elements of sequences
+        query: torch.Tensor
             The previous hidden state of the decoder, s_{i-1}
-        proj_key:
+        proj_key: torch.Tensor
             Hidden state, for each step in the input sequence t. This has been projected via a linear transformation
             from 2 * hidden_size, down to hidden, in the final dimension, U_a h_j in Bahdanau. These are the "keys" of
             an attention layer h_j in Bahdanau.
-        value:
+        value: torch.Tensor
             Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t. The object
             to be reweighted in calculating the context.
-        mask:
-            Boolean tensor of non-padding elements of sequences
 
         Returns
         -------
@@ -515,7 +515,6 @@ class BahdanauAttention(nn.Module):
             Probability that target word i is aligned to, or translated from, source word j
 
         """
-        assert mask is not None, "mask is required"
 
         if self.training:
             assert query.shape == (self.sizes.batch, 1, self.sizes.hidden)
