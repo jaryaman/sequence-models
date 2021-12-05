@@ -395,9 +395,9 @@ class Decoder(nn.Module):
         pre_output = self.dropout_layer(pre_output)
         pre_output = self.pre_output_layer(pre_output)
 
-        if not self.training:
+        if self.training:
             assert output.shape == (self.sizes.batch, 1, self.sizes.hidden)
-            assert hidden.shape == (self.sizes.batch, 1, self.sizes.hidden)
+            assert hidden.shape == (1, self.sizes.batch, self.sizes.hidden)
             assert pre_output.shape == (self.sizes.batch, 1, self.sizes.hidden)
         return output, hidden, pre_output
 
