@@ -202,7 +202,7 @@ class EncoderDecoder(nn.Module):
     trg_embed: nn.Module
         Embedding layer for the target
     generator: Generator
-        Layer to consume matrix of hidden states and output probabilities over the vocabulary TODO: Check
+        Layer to consume matrix of decoder pre_output hidden states, and output probabilities over the vocabulary
 
     """
 
