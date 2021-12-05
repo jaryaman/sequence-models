@@ -1,5 +1,5 @@
 """
-Random symbol generator for source:target memorization task
+Random symbol generator for source:target memorization task. Run this module as a script to perform training/inference.
 """
 
 import matplotlib.pyplot as plt
