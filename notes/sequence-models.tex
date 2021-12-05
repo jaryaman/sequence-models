@@ -217,7 +217,43 @@ where $x_t$ is the input at time $t$, $h_t$ is the hidden state at time $t$. $r_
 \item Eq.\eqref{eq:update_ht} mixes the previous hidden state $h_{t-1}$ with the candidate hidden state $n_t$ through a convex combination weighted by $z_t$.
 \end{enumerate}
 
-\cite{bahdanau14}
+\section{Attention}
+\subsection{Bahdanau attention}
+\cite{bahdanau14} were the first to describe an attention model in the context of an encoder-decoder recurrent model. The model is broadly as follows. An encoder reads an input sequence of vectors $x=(x_1,...,x_{T_x})$, where each element corresponds to e.g. a word in a sentence and the vector is an embedding vector with some fixed embedding dimension. They use an RNN to generate a hidden state $h_t \in \mathbb{R}^n$ for each time $t$
+\begin{equation}
+h_t = f(x_t, h_{t-1})
+\end{equation}
+and a context vector which, in general, is written as
+$c = q(\{h_1,...,h_{T_x}\})$
+where both $f$ and $q$ are some non-linear functions. We concatenate the forwards and backwards hidden states of a bidirectional GRU in \verb#seq.enc_dec_attn# to form $c$, see Fig.~\ref{fig:bah-attn}.
+
+\begin{figure}
+\begin{center}
+\includegraphics[width=0.4\columnwidth]{../figures/enc-dec-attn.jpg}  
+\end{center}
+\caption{Bahdanau attention \citep{bahdanau14}, depicting Eq.\eqref{eq:bah-dec-hidden} and Eq.\eqref{eq:bah-attn-mech} graphically.}
+\label{fig:bah-attn}
+\end{figure}
+
+For the decoder, we have a sequence of target vectors $y=(y_1,...,y_{T_y})$ and an RNN hidden state $s_i$ where
+\begin{equation}
+s_i = f(s_{i-1}, y_{i-1}, c_i). \label{eq:bah-dec-hidden}
+\end{equation}
+Notice that, unlike the encoder RNN, the decoder RNN is conditioned on a distinct context vector $c_i$ for each target word $y_i$.
+
+The context vector $c_i$ depends upon the full sequence of encoder hidden states $(h_1, ..., h_{T_x})$, where each of these `annotations' contains information about the whole input sequence but with a strong focus on the parts surrounding the $i$-th word. The context vector is computed using an \textbf{attention mechanism}
+\begin{equation}
+c_i = \sum_{j=1}^{T_x} \alpha_{ij} h_j \label{eq:bah-attn-mech}
+\end{equation}
+where $\alpha_{ij}$ is an \textbf{attention probability}, defined by
+\begin{equation}
+\alpha_{ij} = \frac{\exp(e_{ij})}{\sum_{k=1}^{T_x}\exp(e_{ik})}
+\end{equation}
+where $e_{ij}$ is an \textbf{attention energy} defined by an \textbf{alignment model}
+\begin{equation}
+e_{ij} = a(s_{i-1}, h_j) = v_a^T \tanh(W_a s_{i-1} + U_a h_j)
+\end{equation}
+where $W_a \in \mathbb{R}^{n \times n}$, $U_a \in \mathbb{R}^{n \times 2n}$ and $v_a \in \mathbb{R^n}$. The alignment models scores how well the inputs around position $j$ and the output at position $j$ match. The context vector for output position $j$ is therefore a reweighting of the input sequence annotations, according to the `probability' that a particular input is `relevant' for the current output position $j$. See \verb#seq.enc_dec_attn# for an implementation.
 
 
 \newpage
