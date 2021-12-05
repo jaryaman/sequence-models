@@ -1,6 +1,6 @@
 """
-Based on https://bastings.github.io/annotated_encoder_decoder/
-See https://arxiv.org/abs/1409.0473
+Based on (but not identical to) https://bastings.github.io/annotated_encoder_decoder/
+See also https://arxiv.org/abs/1409.0473
 """
 
 import math
@@ -66,7 +66,8 @@ def run_epoch(data_iter: Iterable['Batch'], model: 'EncoderDecoder', loss_comput
 
 
 def greedy_decode(model: 'EncoderDecoder', src, src_mask, src_lengths, max_len=100, sos_index=1, eos_index=None):
-    """Greedily decode a sentence by choosing the token with maximum probability at each step"""
+    """Greedily decode a sentence by choosing the token with maximum probability at each step.
+    Only used at inference time. Sets the target embedding to be the previous word's embedding."""
     with torch.no_grad():
         encoder_hidden, encoder_final = model.encode(src, src_lengths)
         prev_y = torch.ones(1, 1).fill_(sos_index).type_as(src)
@@ -78,7 +79,10 @@ def greedy_decode(model: 'EncoderDecoder', src, src_mask, src_lengths, max_len=1
 
     for i in range(max_len):
         with torch.no_grad():
-            out, hidden, pre_output = model.decode(encoder_hidden, encoder_final, src_mask, prev_y, trg_mask, hidden)
+            out, hidden, pre_output = model.decode(
+                encoder_hidden, encoder_final, src_mask,
+                prev_y,
+                trg_mask, hidden)
 
             # we predict from the pre-output layer, which is a combination of Decoder state, prev emb, and context
             prob = model.generator(pre_output[:, -1])
@@ -122,7 +126,7 @@ def print_examples(example_iter, model: 'EncoderDecoder', n=2, max_len=100, sos_
         src = batch.src.cpu().numpy()[0, :]
         trg = batch.trg_y.cpu().numpy()[0, :]
 
-        # remove </s> if present
+        # remove EOS if present
         src = src[:-1] if src[-1] == src_eos_index else src
         trg = trg[:-1] if trg[-1] == trg_eos_index else trg
 
@@ -144,12 +148,30 @@ def print_examples(example_iter, model: 'EncoderDecoder', n=2, max_len=100, sos_
 
 # *** classes ***
 class SimpleLossCompute:
-    def __init__(self, generator, criterion, opt=None):
+    def __init__(self, generator: 'Generator', criterion: nn.NLLLoss, opt: torch.optim.Adam = None):
         self.generator = generator
         self.criterion = criterion
         self.opt = opt
 
     def __call__(self, x: torch.Tensor, y: torch.Tensor, norm):
+        """
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            Input. The pre_output layer of the decoder, which is a hidden state vector: a combination of the
+            prev_embedded, the decoder state, and the context.
+        y: torch.Tensor
+            Target.
+        norm: float
+            Normalizer of loss, in order to perform backpropagation. This should be the batch size.
+
+        Returns
+        -------
+        float:
+            The loss on the full batch
+
+        """
         x = self.generator(x)
         loss = self.criterion(x.contiguous().view(-1, x.size(-1)),
                               y.contiguous().view(-1).long()
@@ -174,15 +196,11 @@ class EncoderDecoder(nn.Module):
     encoder: Encoder
         Encodes a batched sequence of padded word embeddings, returning output for each input sequence and
         final hidden state (concatenation of forwards and backwards final RNN states)
-
     decoder: Decoder
-
     src_embed: nn.Module
         Embedding layer for the source
-
     trg_embed: nn.Module
         Embedding layer for the target
-
     generator: Generator
         Layer to consume matrix of hidden states and output probabilities over the vocabulary TODO: Check
 
@@ -243,6 +261,21 @@ class Generator(nn.Module):
         self.sizes = sizes
 
     def forward(self, x):
+        """
+
+        Parameters
+        ----------
+        x: torch.Tensor
+             The pre_output layer of the decoder. A projection of a combination of Decoder state, prev emb, and context,
+             down to dimension hidden_size.
+
+        Returns
+        -------
+        torch.Tensor:
+            A probability over every element of the vocabulary. Probability of next word.
+
+        """
+        if self.training: assert x.shape == (self.sizes.batch, self.sizes.sequence_length - 1, self.sizes.hidden)
         return F.log_softmax(self.proj(x), dim=-1)
 
 
@@ -316,7 +349,10 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    """A conditional RNN decoder with attention TODO: conditional? Generally need to understand this
+    """A conditional RNN decoder with attention
+
+    Called "conditional" because machine translation models the conditional probabilities of the translation of word k
+    given the current input word and all preceding translated words.
 
     Parameters
     ----------
@@ -360,24 +396,26 @@ class Decoder(nn.Module):
         Parameters
         ----------
         prev_embedded: torch.Tensor
-            Target embedding for the curent word to be decoded (teacher forcing), or the previous hidden state
-            of the decoder (not teacher forcing)
-        encoder_hidden:
+            Target embedding for the current word to be decoded (teacher forcing), or the previous hidden state
+            of the decoder (not teacher forcing).
+            TODO: I find teacher forcing strange because at training time, you are using the target word for time step t
+                  whereas at inference time you use the embedding of the previous word at time step t-1.
+        encoder_hidden: torch.Tensor
             Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t
-        src_mask:
+        src_mask: torch.Tensor
             Boolean array of elements that are not padding (src)
-        proj_key:
+        proj_key: torch.Tensor
             See BahdanauAttention.forward
-        hidden:
+        hidden: torch.Tensor
             See `query` for BahdanauAttention.forward. This is the previous hidden state of the decoder.
 
         Returns
         -------
-        output:
-            The GRU state
-        hidden:
-            The GRU state, but a different shape
-        pre_output:
+        output: torch.Tensor
+            The GRU state.
+        hidden: torch.Tensor
+            The GRU state, but a different shape, because we are decoding one word at a time. See nn.GRU.
+        pre_output: torch.Tensor
             Hidden state vector, a combination of the prev_embedded, the decoder state, and the context
 
         """
@@ -408,8 +446,8 @@ class Decoder(nn.Module):
         Parameters
         ----------
         trg_embed: torch.Tensor
-            Target embedding. We use this for teacher forcing. At inference time, this becomes the embedding of the
-            previous word. TODO: I find this questionable? Isnt this t-1 out of sync compared with training time?
+            Target embedding. At training time, this is the embedding of the target word -- called "teacher forcing".
+            At inference time, this becomes the embedding of the previous word.
         encoder_hidden: torch.Tensor
             Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t
         encoder_final:
@@ -424,6 +462,14 @@ class Decoder(nn.Module):
         max_len: int, optional
             Maximum length of any sequence. If None, assumed to be the final dimension of trg_mask.
 
+        Returns
+        -------
+        decoder_states: torch.Tensor
+            A concatenation of decoder states, for every iteration over max_len
+        hidden:
+            The final decoder hidden state
+        pre_output_vectors:
+            A concatenation of pre_output vectors, for every iteration over max_len
         """
         if self.training:
             assert trg_embed.shape == (self.sizes.batch, self.sizes.sequence_length - 1, self.sizes.emb)
@@ -461,7 +507,13 @@ class Decoder(nn.Module):
 
         decoder_states = torch.cat(decoder_states, dim=1)
         pre_output_vectors = torch.cat(pre_output_vectors, dim=1)
-        return decoder_states, hidden, pre_output_vectors  # [B, N, D]
+
+        if self.training:
+            assert decoder_states.shape == (self.sizes.batch, max_len, self.sizes.hidden)
+            assert hidden.shape == (1, self.sizes.batch, self.sizes.hidden)
+            assert pre_output_vectors.shape == (self.sizes.batch, max_len, self.sizes.hidden)
+
+        return decoder_states, hidden, pre_output_vectors
 
     def init_hidden(self, encoder_final):
         """Return initial decoder state, conditioned on the final encoder state"""
