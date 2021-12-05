@@ -39,7 +39,7 @@ def make_model(sizes: Sizes, dropout: float = 0.1):
     return model.cuda() if USE_CUDA else model
 
 
-def run_epoch(data_iter: Iterable['Batch'], model: 'EncoderDecoder', loss_compute, print_every=50):
+def run_epoch(data_iter: Iterable['Batch'], model: 'EncoderDecoder', loss_compute: 'SimpleLossCompute', print_every=50):
     start = time()
     total_tokens = 0
     total_loss = 0
@@ -320,24 +320,24 @@ class Decoder(nn.Module):
 
     Parameters
     ----------
-    emb_size:
-        TODO
-    hidden_size:
-        TODO
-    attention:
-        TODO
-    num_layers:
-        TODO
-    dropout:
-        TODO
-    bridge:
-        TODO
+    emb_size: int
+        Dimension of the embedding space
+    hidden_size: int
+        Dimension of hidden state
+    attention: BahdanauAttention
+        An attention mechanism
+    num_layers: int
+        Number of GRU layers for decoder
+    dropout: float
+        Dropout probability
+    bridge: bool, optional
+        Whether to use a linear function to project the encoder final state down to a dimension of hidden_size.
     """
 
     def __init__(self, emb_size: int, hidden_size: int, attention: 'BahdanauAttention', sizes: 'Sizes',
                  num_layers: int = 1,
                  dropout: float = 0.5,
-                 bridge: bool = True):
+                 bridge: Optional[bool] = True):
         super().__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
@@ -353,30 +353,32 @@ class Decoder(nn.Module):
         self.dropout_layer = nn.Dropout(p=dropout)
         self.pre_output_layer = nn.Linear(hidden_size + 2 * hidden_size + emb_size, hidden_size, bias=False)
 
-    def forward_step(self, prev_embedded, encoder_hidden, src_mask, proj_key, hidden: torch.Tensor):
+    def forward_step(self, prev_embedded: torch.Tensor, encoder_hidden: torch.Tensor, src_mask: torch.Tensor,
+                     proj_key: torch.Tensor, hidden: torch.Tensor):
         """Perform a single decoder step (1 word). This is used for inference.
 
         Parameters
         ----------
-        prev_embedded:
-            TODO
+        prev_embedded: torch.Tensor
+            Target embedding for the curent word to be decoded (teacher forcing), or the previous hidden state
+            of the decoder (not teacher forcing)
         encoder_hidden:
-            TODO
+            Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t
         src_mask:
-            TODO
+            Boolean array of elements that are not padding (src)
         proj_key:
-            TODO
+            See BahdanauAttention.forward
         hidden:
-            TODO
+            See `query` for BahdanauAttention.forward. This is the previous hidden state of the decoder.
 
         Returns
         -------
         output:
-            TODO
+            The GRU state
         hidden:
-            TODO
+            The GRU state, but a different shape
         pre_output:
-            TODO
+            Hidden state vector, a combination of the prev_embedded, the decoder state, and the context
 
         """
         # compute context vector using attention mechanism
@@ -392,6 +394,11 @@ class Decoder(nn.Module):
         pre_output = torch.cat([prev_embedded, output, context], dim=2)
         pre_output = self.dropout_layer(pre_output)
         pre_output = self.pre_output_layer(pre_output)
+
+        if not self.training:
+            assert output.shape == (self.sizes.batch, 1, self.sizes.hidden)
+            assert hidden.shape == (self.sizes.batch, 1, self.sizes.hidden)
+            assert pre_output.shape == (self.sizes.batch, 1, self.sizes.hidden)
         return output, hidden, pre_output
 
     def forward(self, trg_embed: torch.Tensor, encoder_hidden: torch.Tensor, encoder_final: torch.Tensor,
@@ -401,7 +408,8 @@ class Decoder(nn.Module):
         Parameters
         ----------
         trg_embed: torch.Tensor
-            Target embedding. We use this for teacher forcing
+            Target embedding. We use this for teacher forcing. At inference time, this becomes the embedding of the
+            previous word. TODO: I find this questionable? Isnt this t-1 out of sync compared with training time?
         encoder_hidden: torch.Tensor
             Hidden state (h_t) from the last layer of the encoder GRU, for each step in the input sequence t
         encoder_final:
