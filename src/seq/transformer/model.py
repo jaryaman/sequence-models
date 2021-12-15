@@ -10,6 +10,10 @@ import math, copy, time
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import seaborn
+from collections import namedtuple
+
+# *** globals ***
+Sizes = namedtuple('Sizes', ['N', 'd_model', 'd_ff', 'h'])
 
 
 # *** functions ***
@@ -40,6 +44,31 @@ def attention(query, key, value, mask=None, dropout=None):
     return torch.matmul(p_attn, value), p_attn
 
 
+def make_model(src_vocab, tgt_vocab, N=6, d_model=512, d_ff=2048, h=8, dropout=0.1):
+    sizes = Sizes(N, d_model, d_ff, h)
+
+    c = copy.deepcopy
+    attn = MultiHeadedAttention(h, d_model)
+    ff = PositionwiseFeedForward(d_model, d_ff, dropout)
+    position = PositionalEncoding(d_model, dropout)
+
+    model = EncoderDecoder(
+        Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N, sizes),
+        Decoder(DecoderLayer(d_model, c(attn), c(attn),
+                             c(ff), dropout), N, sizes),
+        nn.Sequential(Embeddings(d_model, src_vocab), c(position)),
+        nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)),
+        Generator(d_model, tgt_vocab, sizes),
+        sizes
+    )
+    return model
+
+
+def main():
+    # Make a simple model
+    return make_model(10, 10, 2)
+
+
 # *** classes ***
 
 class EncoderDecoder(nn.Module):
@@ -62,7 +91,7 @@ class EncoderDecoder(nn.Module):
 
     """
 
-    def __init__(self, encoder: 'Encoder', decoder: 'Decoder', src_embed: nn.Embedding, trg_embed: nn.Embedding,
+    def __init__(self, encoder: 'Encoder', decoder: 'Decoder', src_embed, trg_embed,
                  generator: 'Generator', sizes: 'Sizes'):
         super().__init__()
         self.encoder = encoder
@@ -124,10 +153,11 @@ class Generator(nn.Module):
 class Encoder(nn.Module):
     """Core encoder is a stack of N layers"""
 
-    def __init__(self, layer: nn.Module, N: int):
+    def __init__(self, layer: nn.Module, N: int, sizes: Sizes):
         super().__init__()
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
+        self.sizes = sizes
 
     def forward(self, x, mask):
         """Pass the input (and mask) through each layer in turn"""
@@ -202,10 +232,11 @@ class EncoderLayer(nn.Module):
 class Decoder(nn.Module):
     """Generic N layer decoder with masking"""
 
-    def __init__(self, layer, N):
+    def __init__(self, layer, N, sizes: 'Sizes'):
         super().__init__()
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
+        self.sizes = sizes
 
     def forward(self, x, memory, src_mask, tgt_mask):
         for layer in self.layers:
@@ -261,3 +292,57 @@ class MultiHeadedAttention(nn.Module):
         # 3) "Concat" using a view and apply a final linear layer
         x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
+
+
+class PositionwiseFeedForward(nn.Module):
+    """Implements FFN equation"""
+
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super().__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor):
+        return self.w_2(self.dropout(F.relu(self.w_1(x))))
+
+
+class Embeddings(nn.Module):
+    def __init__(self, d_model: int, vocab: int):
+        super().__init__()
+        self.lut = nn.Embedding(vocab, d_model)
+        self.d_model = d_model
+
+    def forward(self, x):
+        return self.lut(x) * math.sqrt(self.d_model)
+
+
+class PositionalEncoding(nn.Module):
+    """Implement positional encoding.
+
+    Adds a sinusoid based on position. The frequency and offset of the wave is different for each dimension.
+
+    See https://arxiv.org/pdf/1705.03122.pdf for more details
+    """
+
+    def __init__(self, d_model, dropout, max_len=5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        # Compute the positional encodings once in log space
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) *
+                             -(math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
+        return self.dropout(x)
+
+
+if __name__ == '__main__':
+    main()
