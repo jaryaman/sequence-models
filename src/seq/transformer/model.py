@@ -1,16 +1,16 @@
 """Based on (but not identical to) "The Annotated Transformer"
 
-see http://nlp.seas.harvard.edu/2018/04/03/attention.html"""
+see http://nlp.seas.harvard.edu/2018/04/03/attention.html
+and https://arxiv.org/abs/1706.03762
+"""
 
-import numpy as np
+import copy
+import math
+from collections import namedtuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math, copy, time
-from torch.autograd import Variable
-import matplotlib.pyplot as plt
-import seaborn
-from collections import namedtuple
 
 # *** globals ***
 Sizes = namedtuple('Sizes', ['N', 'd_model', 'd_ff', 'h'])
@@ -20,13 +20,6 @@ Sizes = namedtuple('Sizes', ['N', 'd_model', 'd_ff', 'h'])
 def clones(module: nn.Module, N: int):
     """Produce N identical copies of a layer"""
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
-
-def subsequent_mask(size):
-    """Mask out subsequent positions. This blocks attending to future words during training."""
-    attn_shape = (1, size, size)
-    subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
-    return torch.from_numpy(subsequent_mask) == 0
 
 
 def attention(query, key, value, mask=None, dropout=None):
@@ -340,7 +333,7 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
+        x = x + torch.tensor(self.pe[:, :x.size(1)], requires_grad=False)
         return self.dropout(x)
 
 
