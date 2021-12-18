@@ -256,6 +256,30 @@ e_{ij} = a(s_{i-1}, h_j) = v_a^T \tanh(W_a s_{i-1} + U_a h_j)
 where $W_a \in \mathbb{R}^{n \times n}$, $U_a \in \mathbb{R}^{n \times 2n}$ and $v_a \in \mathbb{R^n}$. The alignment models scores how well the inputs around position $j$ and the output at position $j$ match. The context vector for output position $j$ is therefore a reweighting of the input sequence annotations, according to the `probability' that a particular input is `relevant' for the current output position $j$. See \verb#seq.enc_dec_attn# for an implementation.
 
 
+\section{Loss functions}
+
+\subsection{Cross entropy}
+The cross-entropy $H(p,q)$ between two probability distributions $p$ and $q$ is over the same underlying set of events measures the number of bits needed to identify an event drawn from the set if a coding scheme used for the set is optimized for an estimated probability distribution $q$ rather than the true distribution $p$. It is defined as 
+\begin{equation}
+H(p,q) = - \sum_{x \in \mathcal{X}} p(x) \log q(x)
+\end{equation}
+for discrete probability distributions $p$ and $q$. The cross entropy can be written in terms of the entropy of the true distribution ($H(p)$) and the Kullback-Leibler divergence ($D_{\text{KL}}(p||q)$)
+\begin{equation}
+H(p,q) = H(p) + D_{\text{KL}}(p||q).
+\end{equation}
+[\textbf{TODO}: which will almost certainly have some sort of energetics interpretation too] 
+
+Minimizing the cross-entropy is the same as maximizing the log-likelihood for a multinomial model (which is called a ``bag of words'' model in language modelling). We typically use $p$ as the empirical probability in the test set, and $q$ as the model predicted probability.
+
+\subsection{Label smoothing}
+Suppose that there exists a single true label $y$ over classification classes $k$. Using the same notation above for cross entropy, then for a particular training example $x$ we will have $p(k)=\delta_{k,y}$. We typically generate $q(k|x)= \text{softmax}(z_k)$ where $z_k$ is a logit. The fact that the target distribution is a Dirac delta function means that the only way to achieve the target distribution is to have $z_y \gg z_k$. This can cause: i) overfitting; ii) the model to become less adaptive, due to the gradient of $H(p,q)$ w.r.t.\ $z_k$ being bounded between -1 and 1. \cite{Szegedy16} propose replacing the label distribution $q(k|x)=\delta_{k,y}$ with
+\begin{equation}
+q'(k|x) = (1-\epsilon) \delta_{k,y} + \epsilon u(k)
+\end{equation}
+where $u(k)$ is independent of the training example $x$. They typically choose this to be the model prior, namely the discrete uniform distribution. This amounts to replacing the target with a uniformly random category with probability $\epsilon$ during training. 
+
+% \section{Optimization}  # TODO
+
 \newpage
 \bibliography{seq.bib} 
 
