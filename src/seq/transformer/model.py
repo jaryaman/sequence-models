@@ -77,20 +77,20 @@ class EncoderDecoder(nn.Module):
     decoder: Decoder
     src_embed: nn.Module
         Embedding layer for the source
-    trg_embed: nn.Module
+    tgt_embed: nn.Module
         Embedding layer for the target
     generator: Generator
         Layer to consume matrix of decoder pre_output hidden states, and output probabilities over the vocabulary
 
     """
 
-    def __init__(self, encoder: 'Encoder', decoder: 'Decoder', src_embed, trg_embed,
+    def __init__(self, encoder: 'Encoder', decoder: 'Decoder', src_embed, tgt_embed,
                  generator: 'Generator', sizes: 'Sizes'):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.src_embed = src_embed
-        self.trg_embed = trg_embed
+        self.tgt_embed = tgt_embed
         self.generator = generator
         self.sizes = sizes
 
@@ -333,7 +333,7 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + torch.tensor(self.pe[:, :x.size(1)], requires_grad=False)
+        x = x + self.pe[:, :x.size(1)].clone().detach()
         return self.dropout(x)
 
 

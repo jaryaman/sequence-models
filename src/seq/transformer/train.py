@@ -11,7 +11,7 @@ global max_src_in_batch, max_tgt_in_batch
 
 
 # *** functions ***
-def run_epoch(data_iter, model: EncoderDecoder, loss_compute):
+def run_epoch(data_iter, model: EncoderDecoder, loss_compute: 'SimpleLossCompute'):
     """Standard Training and Logging Function"""
     start = time.time()
     total_tokens = 0
@@ -112,7 +112,7 @@ class LabelSmoothing(nn.Module):
      See https://arxiv.org/abs/1512.00567"""
     def __init__(self, size, padding_idx, smoothing=0.0):
         super().__init__()
-        self.criterion = nn.KLDivLoss(size_average=False)
+        self.criterion = nn.KLDivLoss(reduction='sum')
         self.padding_idx = padding_idx
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
@@ -129,15 +129,23 @@ class LabelSmoothing(nn.Module):
         if mask.dim() > 0:
             true_dist.index_fill_(0, mask.squeeze(), 0.0)
         self.true_dist = true_dist
-        return self.criterion(x, torch.tensor(true_dist, requires_grad=False))
+        return self.criterion(x, true_dist.clone().detach())
 
-def main():
-    crit = LabelSmoothing(5, 0, 0)
-    predict = torch.FloatTensor([[0, 0.2, 0.7, 0.1, 0],
-                                 [0, 0.2, 0.7, 0.1, 0],
-                                 [0, 0.2, 0.7, 0.1, 0]])
-    v = crit(predict.log(),
-             torch.LongTensor([2, 1, 0]))
-    pass
-if __name__ == '__main__':
-    main()
+class SimpleLossCompute:
+    def __init__(self, generator, criterion, opt=None):
+        self.generator = generator
+        self.criterion = criterion
+        self.opt = opt
+
+    def __call__(self, x: torch.Tensor, y: torch.Tensor, norm):
+        x = self.generator(x)
+        loss = self.criterion(x.contiguous().view(-1, x.size(-1)),
+                              y.contiguous().view(-1)) / norm
+
+        if self.opt is not None:
+            loss.backward()
+            self.opt.step()
+            self.opt.optimizer.zero_grad()
+
+        return loss.data.item() * norm
+
