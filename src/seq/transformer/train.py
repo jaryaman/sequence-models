@@ -6,9 +6,6 @@ import torch.nn as nn
 
 from seq.transformer.model import EncoderDecoder
 
-# *** globals ***
-global max_src_in_batch, max_tgt_in_batch
-
 
 # *** functions ***
 def run_epoch(data_iter, model: EncoderDecoder, loss_compute: 'SimpleLossCompute'):
@@ -31,21 +28,6 @@ def run_epoch(data_iter, model: EncoderDecoder, loss_compute: 'SimpleLossCompute
             start = time.time()
             tokens = 0
     return total_loss / total_tokens
-
-
-def batch_size_fn(new, count):
-    """Keep augmenting batch and calculate total number of tokens + padding"""
-    global max_src_in_batch, max_tgt_in_batch
-
-    if count == 1:
-        max_src_in_batch = 0
-        max_tgt_in_batch = 0
-
-    max_src_in_batch = max(max_src_in_batch, len(new.src))
-    max_tgt_in_batch = max(max_tgt_in_batch, len(new.trg) + 2)
-    src_elements = count * max_src_in_batch
-    tgt_elements = count * max_tgt_in_batch
-    return max(src_elements, tgt_elements)
 
 
 def subsequent_mask(size):
@@ -110,6 +92,7 @@ class LabelSmoothing(nn.Module):
     """Implement label smoothing
 
      See https://arxiv.org/abs/1512.00567"""
+
     def __init__(self, size, padding_idx, smoothing=0.0):
         super().__init__()
         self.criterion = nn.KLDivLoss(reduction='sum')
@@ -131,6 +114,7 @@ class LabelSmoothing(nn.Module):
         self.true_dist = true_dist
         return self.criterion(x, true_dist.clone().detach())
 
+
 class SimpleLossCompute:
     def __init__(self, generator, criterion, opt=None):
         self.generator = generator
@@ -148,4 +132,3 @@ class SimpleLossCompute:
             self.opt.optimizer.zero_grad()
 
         return loss.data.item() * norm
-

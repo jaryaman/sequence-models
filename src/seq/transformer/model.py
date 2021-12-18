@@ -30,7 +30,7 @@ def attention(query, key, value, mask=None, dropout=None):
     # scaling controls the variance of the dot-product, so we control the vanishing gradient problem
     scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
     if mask is not None:
-        scores = scores.masked_fill(mask == 0, -1e-9)
+        scores = scores.masked_fill(mask == 0, -1e9)
     p_attn = F.softmax(scores, dim=-1)
     if dropout is not None:
         p_attn = dropout(p_attn)
@@ -54,6 +54,13 @@ def make_model(src_vocab, tgt_vocab, N=6, d_model=512, d_ff=2048, h=8, dropout=0
         Generator(d_model, tgt_vocab, sizes),
         sizes
     )
+
+    # This was important from their code.
+    # Initialize parameters with Glorot / fan_avg.
+    for p in model.parameters():
+        if p.dim() > 1:
+            nn.init.xavier_uniform(p)
+
     return model
 
 

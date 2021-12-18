@@ -5,3 +5,4 @@ notebooks/data
 .vscode
 **/__pycache__
 reading
+tmp

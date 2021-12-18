@@ -39,6 +39,10 @@ def decode_on_sequential_source(model):
 
 def main():
     np.random.seed(42)
+    torch.manual_seed(42)
+    import random
+    random.seed(0)
+    torch.use_deterministic_algorithms(True)
     V = 11
     criterion = LabelSmoothing(size=V, padding_idx=0, smoothing=0.0)
     model = make_model(V, V, N=2)
@@ -46,7 +50,7 @@ def main():
                         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
     # training
-    for epoch in range(100):
+    for epoch in range(10):
         model.train()
         run_epoch(data_gen(V, 30, 20), model, SimpleLossCompute(model.generator, criterion, model_opt))
 
