@@ -50,7 +50,7 @@ def main():
                         torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
     # training
-    for epoch in range(10):
+    for epoch in range(15):
         model.train()
         run_epoch(data_gen(V, 30, 20), model, SimpleLossCompute(model.generator, criterion, model_opt))
 
