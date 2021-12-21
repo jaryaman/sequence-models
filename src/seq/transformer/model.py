@@ -1,7 +1,7 @@
 """Based on (but not identical to) "The Annotated Transformer"
 
 see http://nlp.seas.harvard.edu/2018/04/03/attention.html
-and https://arxiv.org/abs/1706.03762
+and https://arxiv.org/pdf/1706.03762.pdf
 """
 
 import copy
@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # *** globals ***
-Sizes = namedtuple('Sizes', ['N', 'd_model', 'd_ff', 'h'])
+Sizes = namedtuple('Sizes', ['batch', 'n_batches', 'src_vocab', 'tgt_vocab', 'n_layers', 'd_model', 'd_ff', 'h'])
 
 
 # *** functions ***
@@ -37,21 +37,20 @@ def attention(query, key, value, mask=None, dropout=None):
     return torch.matmul(p_attn, value), p_attn
 
 
-def make_model(src_vocab, tgt_vocab, N=6, d_model=512, d_ff=2048, h=8, dropout=0.1):
-    sizes = Sizes(N, d_model, d_ff, h)
+def make_model(sizes: 'Sizes', dropout=0.1):
 
     c = copy.deepcopy
-    attn = MultiHeadedAttention(h, d_model)
-    ff = PositionwiseFeedForward(d_model, d_ff, dropout)
-    position = PositionalEncoding(d_model, dropout)
+    attn = MultiHeadedAttention(sizes.h, sizes.d_model)
+    ff = PositionwiseFeedForward(sizes.d_model, sizes.d_ff, dropout)
+    position = PositionalEncoding(sizes.d_model, dropout)
 
     model = EncoderDecoder(
-        Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N, sizes),
-        Decoder(DecoderLayer(d_model, c(attn), c(attn),
-                             c(ff), dropout), N, sizes),
-        nn.Sequential(Embeddings(d_model, src_vocab), c(position)),
-        nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)),
-        Generator(d_model, tgt_vocab, sizes),
+        Encoder(EncoderLayer(sizes.d_model, c(attn), c(ff), dropout), sizes.n_layers, sizes),
+        Decoder(DecoderLayer(sizes.d_model, c(attn), c(attn),
+                             c(ff), dropout), sizes.n_layers, sizes),
+        nn.Sequential(Embeddings(sizes.d_model, sizes.src_vocab), c(position)),
+        nn.Sequential(Embeddings(sizes.d_model, sizes.tgt_vocab), c(position)),
+        Generator(sizes.d_model, sizes.tgt_vocab, sizes),
         sizes
     )
 
@@ -59,14 +58,10 @@ def make_model(src_vocab, tgt_vocab, N=6, d_model=512, d_ff=2048, h=8, dropout=0
     # Initialize parameters with Glorot / fan_avg.
     for p in model.parameters():
         if p.dim() > 1:
-            nn.init.xavier_uniform(p)
+            nn.init.xavier_uniform_(p)
 
     return model
 
-
-def main():
-    # Make a simple model
-    return make_model(10, 10, 2)
 
 
 # *** classes ***
@@ -159,8 +154,23 @@ class Encoder(nn.Module):
         self.norm = LayerNorm(layer.size)
         self.sizes = sizes
 
-    def forward(self, x, mask):
-        """Pass the input (and mask) through each layer in turn"""
+    def forward(self, x: torch.Tensor, mask: torch.Tensor):
+        """Pass the input (and mask) through each layer in turn
+
+        Parameters
+        ----------
+        x: torch.Tensor
+            The batched input tokens
+        mask: torch.Tensor
+            Non-padded sequences
+
+        Returns
+        -------
+        torch.Tensor:
+            Encoded inputs
+        """
+        # assert x.shape == (self.sizes.batch, self.sizes.src_vocab)  # todo
+
         for layer in self.layers:
             x = layer(x, mask)
         return self.norm(x)
@@ -342,7 +352,3 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         x = x + self.pe[:, :x.size(1)].clone().detach()
         return self.dropout(x)
-
-
-if __name__ == '__main__':
-    main()

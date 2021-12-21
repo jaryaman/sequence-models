@@ -23,8 +23,7 @@ def run_epoch(data_iter, model: EncoderDecoder, loss_compute: 'SimpleLossCompute
         tokens += batch.ntokens
         if i % 50 == 1:
             elapsed = time.time() - start
-            print("Epoch Step: %d Loss: %f Tokens per Sec: %f" %
-                  (i, loss / batch.ntokens, tokens / elapsed))
+            print(f"Epoch Step: {i}, Loss: {loss / batch.ntokens}, Tokens per Sec: {tokens / elapsed}")
             start = time.time()
             tokens = 0
     return total_loss / total_tokens
@@ -91,9 +90,24 @@ class NoamOpt:
 class LabelSmoothing(nn.Module):
     """Implement label smoothing
 
-     See https://arxiv.org/abs/1512.00567"""
+     See https://arxiv.org/abs/1512.00567
 
-    def __init__(self, size, padding_idx, smoothing=0.0):
+     Parameters
+     ----------
+     size: int
+        The total number of categories. In language models, this is the vocabulary size. Used to define the prior.
+     padding_idx: int
+        The token used for padding
+     smoothing: float
+        The amount of label smoothing. If 0, labels are retained as binary. If 1, then all information from the label
+        discarded, and the prior is used for labels. Between 0-1.
+
+     Notes
+     -----
+     Uses KL divergence loss
+     """
+
+    def __init__(self, size: int, padding_idx: int, smoothing: float = 0.0):
         super().__init__()
         self.criterion = nn.KLDivLoss(reduction='sum')
         self.padding_idx = padding_idx
@@ -104,6 +118,7 @@ class LabelSmoothing(nn.Module):
 
     def forward(self, x: torch.Tensor, target: torch.Tensor):
         assert x.size(1) == self.size
+        assert 0. <= self.smoothing <= 1.
         true_dist = torch.zeros_like(x)
         true_dist.fill_(self.smoothing / (self.size - 2))  # baseline prior
         true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)  # insert the true labels as 1-prior
