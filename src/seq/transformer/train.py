@@ -1,5 +1,5 @@
 import time
-from typing import Generator
+from typing import Iterable
 
 import numpy as np
 import torch
@@ -9,7 +9,7 @@ from seq.transformer.model import EncoderDecoder
 
 
 # *** functions ***
-def run_epoch(data_iter: Generator['Batch'], model: EncoderDecoder, loss_compute: 'SimpleLossCompute'):
+def run_epoch(data_iter: Iterable['Batch'], model: EncoderDecoder, loss_compute: 'SimpleLossCompute'):
     """Standard Training and Logging Function"""
     start = time.time()
     total_tokens = 0
