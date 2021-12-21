@@ -42,16 +42,22 @@ def make_model(sizes: 'Sizes', dropout=0.1):
     c = copy.deepcopy
     attn = MultiHeadedAttention(sizes.h, sizes.d_model)
     ff = PositionwiseFeedForward(sizes.d_model, sizes.d_ff, dropout)
-    position = PositionalEncoding(sizes.d_model, dropout)
+
 
     model = EncoderDecoder(
-        Encoder(EncoderLayer(sizes.d_model, c(attn), c(ff), dropout), sizes.n_layers, sizes),
-        Decoder(DecoderLayer(sizes.d_model, c(attn), c(attn),
-                             c(ff), dropout), sizes.n_layers, sizes),
-        nn.Sequential(Embeddings(sizes.d_model, sizes.src_vocab), c(position)),
-        nn.Sequential(Embeddings(sizes.d_model, sizes.tgt_vocab), c(position)),
+        Encoder(
+            EncoderLayer(
+                sizes.d_model, c(attn), c(ff), dropout),
+            sizes.n_layers,
+            sizes),
+        Decoder(
+            DecoderLayer(
+                sizes.d_model, c(attn), c(attn), c(ff), dropout),
+            sizes.n_layers,
+            sizes),
         Generator(sizes.d_model, sizes.tgt_vocab, sizes),
-        sizes
+        sizes,
+        dropout=dropout,
     )
 
     # This was important from their code.
@@ -86,13 +92,19 @@ class EncoderDecoder(nn.Module):
 
     """
 
-    def __init__(self, encoder: 'Encoder', decoder: 'Decoder', src_embed, tgt_embed,
-                 generator: 'Generator', sizes: 'Sizes'):
+    def __init__(self, encoder: 'Encoder', decoder: 'Decoder',
+                 generator: 'Generator', sizes: 'Sizes', dropout: float = 0.0):
         super().__init__()
+
+        c = copy.deepcopy
+
         self.encoder = encoder
         self.decoder = decoder
-        self.src_embed = src_embed
-        self.tgt_embed = tgt_embed
+
+        position = PositionalEncoding(sizes.d_model, dropout)
+        self.src_embed = nn.Sequential(Embeddings(sizes.d_model, sizes.src_vocab), c(position))
+        self.tgt_embed = nn.Sequential(Embeddings(sizes.d_model, sizes.tgt_vocab), c(position))
+
         self.generator = generator
         self.sizes = sizes
 
@@ -119,6 +131,7 @@ class EncoderDecoder(nn.Module):
 
     def decode(self, memory, src_mask, tgt, tgt_mask):
         """See Decoder.forward for details"""
+
         return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
 
