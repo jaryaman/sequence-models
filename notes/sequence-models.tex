@@ -255,6 +255,39 @@ e_{ij} = a(s_{i-1}, h_j) = v_a^T \tanh(W_a s_{i-1} + U_a h_j)
 \end{equation}
 where $W_a \in \mathbb{R}^{n \times n}$, $U_a \in \mathbb{R}^{n \times 2n}$ and $v_a \in \mathbb{R^n}$. The alignment models scores how well the inputs around position $j$ and the output at position $j$ match. The context vector for output position $j$ is therefore a reweighting of the input sequence annotations, according to the `probability' that a particular input is `relevant' for the current output position $j$. See \verb#seq.enc_dec_attn# for an implementation.
 
+\newcommand{\dmodel}{d_{\text{model}}}
+
+\section{Transformers}
+
+
+\subsection{Embedding}
+Transformers \citep{Vaswani17} use regular-old embeddings for the source and target (see Fig.~\ref{fig:tfm}). The embedding dimension is $\dmodel$.
+
+\begin{figure}
+\begin{center}
+\includegraphics[width=0.4\columnwidth]{../figures/transformer.jpg}  
+\end{center}
+\caption{The infamous transformer diagram.}
+\label{fig:tfm}
+\end{figure}
+
+
+\subsection{Positional encoding}
+After generating the embeddings, we \textbf{add} a different sinusoidal function to each dimension of the embedding, where the sinusoid is continuous along the sequence length of the input (namely either the source or target). Doing this gives the input positional information, which is necessary as there are no recurrent or convolutional components to the architecture. For dimension $i$, at position $pos$, we add the following functions to the embeddings
+\begin{align}
+PE_{pos, 2i} &= \sin\left(pos/10000^{2i/\dmodel}\right) \\
+PE_{pos, 2i+1} &= \cos\left(pos/10000^{2i/\dmodel}\right). 
+\end{align}
+In other words, for even dimensions we add a sine wave and for odd dimensions we add a cosine wave, and each dimension goes in a geometric progression of frequency. The intuition is that for any fixed offset $k$, then $PE_{pos+k},i \propto PE_{pos},i$ which is easy to learn and should help the model attend to relative positions. [\textbf{TODO: Don't quite follow the intuition here.}]
+
+\begin{figure}
+\begin{center}
+\includegraphics[width=0.7\columnwidth]{../figures/pos_enc.jpg}  
+\end{center}
+\caption{Positional encodings. The $x$-axis corresponds to position along the sequence ($pos$). The vertical axis is the value of $PE_{pos, i}$. Notice how each function has a different frequency, and the phase at $pos=0$ alternates between odd and even dimensions.}
+\label{fig:pos_enc}
+\end{figure}
+
 
 \section{Loss functions}
 

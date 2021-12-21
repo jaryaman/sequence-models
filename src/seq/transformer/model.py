@@ -41,13 +41,12 @@ def attention(query, key, value, mask=None, dropout=None):
 
 def make_model(sizes: 'Sizes', dropout=0.1):
     c = copy.deepcopy
-    attn = MultiHeadedAttention(sizes.h, sizes.emb)
+    attn = MultiHeadedAttention(sizes, dropout=dropout)
     ff = PositionwiseFeedForward(sizes.emb, sizes.d_ff, dropout)
 
     model = EncoderDecoder(
         Encoder(
-            EncoderLayer(
-                sizes.emb, c(attn), c(ff), dropout),
+            EncoderLayer(c(attn), c(ff), dropout, sizes),
             sizes.n_layers,
             sizes),
         Decoder(
@@ -162,10 +161,10 @@ class Generator(nn.Module):
 class Encoder(nn.Module):
     """Core encoder is a stack of N layers"""
 
-    def __init__(self, layer: nn.Module, N: int, sizes: Sizes):
+    def __init__(self, layer: 'EncoderLayer', N: int, sizes: Sizes):
         super().__init__()
         self.layers = clones(layer, N)
-        self.norm = LayerNorm(layer.size)
+        self.norm = LayerNorm(layer.sizes.emb)
         self.sizes = sizes
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor):
@@ -183,7 +182,8 @@ class Encoder(nn.Module):
         torch.Tensor:
             Encoded inputs
         """
-        # assert x.shape == (self.sizes.batch, self.sizes.src_vocab)  # todo
+        if self.training:
+            assert x.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
 
         for layer in self.layers:
             x = layer(x, mask)
@@ -240,16 +240,22 @@ class SublayerConnection(nn.Module):
 class EncoderLayer(nn.Module):
     """Encoder is made up of self-attn and feed forward"""
 
-    def __init__(self, size, self_attn, feed_forward, dropout):
+    def __init__(self, self_attn: 'MultiHeadedAttention', feed_forward: 'PositionwiseFeedForward',
+                 dropout: float, sizes: 'Sizes'):
         super().__init__()
         self.self_attn = self_attn
         self.feed_forward = feed_forward
-        self.sublayer = clones(SublayerConnection(size, dropout), 2)
-        self.size = size
+        self.sublayer = clones(SublayerConnection(sizes.emb, dropout), 2)
+
+        self.sizes = sizes
 
     def forward(self, x, mask):
         """Follow Figure 1 (left) for connections"""
+        if self.training:
+            assert x.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
+
         x = self.sublayer[0](x, lambda i: self.self_attn(i, i, i, mask))
+
         return self.sublayer[1](x, self.feed_forward)
 
 
@@ -288,17 +294,19 @@ class DecoderLayer(nn.Module):
 
 
 class MultiHeadedAttention(nn.Module):
-    def __init__(self, h, d_emb, dropout=0.1):
+    def __init__(self, sizes: 'Sizes', dropout: float = 0.1):
         super().__init__()
-        assert d_emb % h == 0
+        assert sizes.emb % sizes.h == 0
         # Assume d_v == d_k  # TODO: ?
-        self.d_k = d_emb // h
-        self.h = h
-        self.linears = clones(nn.Linear(d_emb, d_emb), 4)
+        self.d_k = sizes.emb // sizes.h
+        self.h = sizes.h
+        self.linears = clones(nn.Linear(sizes.emb, sizes.emb), 4)
         self.attn = None
         self.dropout = nn.Dropout(p=dropout)
 
-    def forward(self, query, key, value, mask=None):
+        self.sizes = sizes
+
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask: torch.Tensor = None):
         """Implements Figure 2. TODO: Understand better"""
         if mask is not None:
             # Same mask applied to all h heads
@@ -379,7 +387,7 @@ class PositionalEncoding(nn.Module):
         pe = pe.unsqueeze(0)
 
         self.sizes = sizes
-        self.is_output = is_source
+        self.is_source = is_source
 
         # register an object as part of the model's state, which isn't a parameter. Allows access as an attribute.
         self.register_buffer('pe', pe)

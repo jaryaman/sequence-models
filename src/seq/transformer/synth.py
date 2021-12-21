@@ -60,7 +60,7 @@ def main():
         n_layers=2,
         emb=512,
         d_ff=2048,
-        h=8,
+        h=8, # number of attention heads
         )
 
     criterion = LabelSmoothing(size=sizes.tgt_vocab, padding_idx=0, smoothing=0.1)
