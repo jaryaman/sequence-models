@@ -83,10 +83,7 @@ class EncoderDecoder(nn.Module):
         Encodes a batched sequence of padded word embeddings, returning output for each input sequence and
         final hidden state (concatenation of forwards and backwards final RNN states)
     decoder: Decoder
-    src_embed: nn.Module
-        Embedding layer for the source
-    tgt_embed: nn.Module
-        Embedding layer for the target
+        TODO
     generator: Generator
         Layer to consume matrix of decoder pre_output hidden states, and output probabilities over the vocabulary
 
@@ -122,6 +119,7 @@ class EncoderDecoder(nn.Module):
         tgt_mask: torch.Tensor
             Boolean array of elements that are not padding (trg)
         """
+        # assert src.shape == (self.sizes.batch, self.sizes.src_vocab - 1)  # todo
         return self.decode(self.encode(src, src_mask), src_mask,
                            tgt, tgt_mask)
 
@@ -131,7 +129,6 @@ class EncoderDecoder(nn.Module):
 
     def decode(self, memory, src_mask, tgt, tgt_mask):
         """See Decoder.forward for details"""
-
         return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
 

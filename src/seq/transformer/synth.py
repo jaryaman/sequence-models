@@ -47,7 +47,7 @@ def main():
     random.seed(0)
     torch.use_deterministic_algorithms(True)
 
-    vocab_size = 11
+    vocab_size = 10 + 1  # padding is included in the vocabulary, so +1
     sizes = Sizes(
         batch=30,
         n_batches=20,
@@ -59,7 +59,7 @@ def main():
         h=8,
         )
 
-    criterion = LabelSmoothing(size=sizes.tgt_vocab, padding_idx=0, smoothing=0.0)
+    criterion = LabelSmoothing(size=sizes.tgt_vocab, padding_idx=0, smoothing=0.1)
     model = make_model(sizes)
     model_opt = NoamOpt(sizes.d_model, factor=1, warmup=400,
                         optimizer=torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))

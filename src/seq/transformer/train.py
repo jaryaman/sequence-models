@@ -120,9 +120,14 @@ class LabelSmoothing(nn.Module):
         assert x.size(1) == self.size
         assert 0. <= self.smoothing <= 1.
         true_dist = torch.zeros_like(x)
-        true_dist.fill_(self.smoothing / (self.size - 2))  # baseline prior
+
+        non_padding_words_in_vocab = self.size - 1
+        true_dist.fill_(self.smoothing / (non_padding_words_in_vocab - 1))  # -1 to leave space for the true label
         true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)  # insert the true labels as 1-prior
-        true_dist[:, self.padding_idx] = 0
+        true_dist[:, self.padding_idx] = 0  # the padding is never a true class
+
+        # assert torch.allclose(true_dist.sum(dim=1), torch.tensor(1.))
+
         mask = torch.nonzero(target.data == self.padding_idx)
         if mask.dim() > 0:
             true_dist.index_fill_(0, mask.squeeze(), 0.0)
