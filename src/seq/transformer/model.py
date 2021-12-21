@@ -96,10 +96,10 @@ class EncoderDecoder(nn.Module):
         self.decoder = decoder
 
         self.src_embed = nn.Sequential(Embeddings(sizes.src_vocab, sizes.emb),
-                                       PositionalEncoding(sizes.emb, dropout, sizes, is_enc=True),
+                                       PositionalEncoding(sizes.emb, dropout, sizes, is_output=True),
                                        )
         self.tgt_embed = nn.Sequential(Embeddings(sizes.tgt_vocab, sizes.emb),
-                                       PositionalEncoding(sizes.emb, dropout, sizes, is_enc=False),
+                                       PositionalEncoding(sizes.emb, dropout, sizes, is_output=False),
                                        )
 
         self.generator = generator
@@ -117,9 +117,11 @@ class EncoderDecoder(nn.Module):
         src_mask: torch.Tensor
             Boolean array of elements that are not padding (src)
         tgt_mask: torch.Tensor
-            Boolean array of elements that are not padding (trg)
+            Boolean array of elements that are not padding (tgt)
         """
-        # assert src.shape == (self.sizes.batch, self.sizes.src_vocab - 1)  # todo
+        assert src.shape == (self.sizes.batch, self.sizes.src_seq)
+        assert tgt.shape == (self.sizes.batch, self.sizes.tgt_seq - 1)  # TODO: Why? (Shifted right)
+
         return self.decode(self.encode(src, src_mask), src_mask,
                            tgt, tgt_mask)
 
@@ -347,7 +349,7 @@ class PositionalEncoding(nn.Module):
     See https://arxiv.org/pdf/1705.03122.pdf for more details
     """
 
-    def __init__(self, d_emb, dropout, sizes: 'Sizes', is_enc=True, max_len=5000):
+    def __init__(self, d_emb, dropout, sizes: 'Sizes', is_output=True, max_len=5000):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
@@ -361,15 +363,15 @@ class PositionalEncoding(nn.Module):
         pe = pe.unsqueeze(0)
 
         self.sizes = sizes
-        self.is_enc = is_enc
+        self.is_output = is_output
 
         # register an object as part of the model's state, which isn't a parameter. Allows access as an attribute.
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        if self.training and self.is_enc:
+        if self.training and self.is_output:
             assert x.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
-        elif self.training and not self.is_enc:
+        elif self.training and not self.is_output:
             assert x.shape == (self.sizes.batch, self.sizes.tgt_seq - 1, self.sizes.emb)
 
         x = x + self.pe[:, :x.size(1)].clone().detach()

@@ -1,4 +1,4 @@
-"""A memorization task on synthetic data using a transformer"""
+"""A copy task on synthetic data using a transformer"""
 
 import numpy as np
 import torch

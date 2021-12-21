@@ -15,9 +15,9 @@ def run_epoch(data_iter, model: EncoderDecoder, loss_compute: 'SimpleLossCompute
     total_loss = 0
     tokens = 0
     for i, batch in enumerate(data_iter):
-        out = model.forward(batch.src, batch.trg,
-                            batch.src_mask, batch.trg_mask)
-        loss = loss_compute(out, batch.trg_y, batch.ntokens)
+        out = model.forward(batch.src, batch.tgt,
+                            batch.src_mask, batch.tgt_mask)
+        loss = loss_compute(out, batch.tgt_y, batch.ntokens)
         total_loss += loss
         total_tokens += batch.ntokens
         tokens += batch.ntokens
@@ -40,14 +40,14 @@ def subsequent_mask(size):
 class Batch:
     """Object for holding a batch of data with mask during training"""
 
-    def __init__(self, src, trg=None, pad=0):
+    def __init__(self, src, tgt=None, pad=0):
         self.src = src
         self.src_mask = (src != pad).unsqueeze(-2)
-        if trg is not None:
-            self.trg = trg[:, :-1]  # TODO: Why does the target lose the final token?
-            self.trg_y = trg[:, 1:]
-            self.trg_mask = self.make_std_mask(self.trg, pad)
-            self.ntokens = (self.trg_y != pad).data.sum()
+        if tgt is not None:
+            self.tgt = tgt[:, :-1]  # TODO: Why does the target lose the final token?
+            self.tgt_y = tgt[:, 1:]
+            self.tgt_mask = self.make_std_mask(self.tgt, pad)
+            self.ntokens = (self.tgt_y != pad).data.sum()
 
     @staticmethod
     def make_std_mask(tgt, pad):
