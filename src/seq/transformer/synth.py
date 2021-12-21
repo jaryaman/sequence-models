@@ -7,10 +7,10 @@ from seq.transformer.model import make_model, Sizes
 from seq.transformer.train import NoamOpt, Batch, LabelSmoothing, run_epoch, SimpleLossCompute, subsequent_mask
 
 
-def data_gen(V, batch, n_batches):
+def data_gen(vocab_size, sequence_length, batch, n_batches):
     """Generate random data for a src-tgt copy task"""
     for i in range(n_batches):
-        data = np.random.randint(1, V, size=(batch, V-1), dtype='int64')
+        data = np.random.randint(1, vocab_size, size=(batch, sequence_length), dtype='int64')
         data[:, 0] = 1
         src = torch.from_numpy(data)
         tgt = torch.from_numpy(data)
@@ -31,12 +31,13 @@ def greedy_decode(model, src, src_mask, max_len, start_symbol):
                         torch.ones(1, 1).type_as(src.data).fill_(next_word)], dim=1)
     return ys
 
-def decode_on_sequential_source(model):
+def decode_on_sequential_source(model, sizes: 'Sizes'):
     model.eval()
     with torch.no_grad():
-        src = torch.LongTensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]])
-        src_mask = torch.ones(1, 1, 10)
-        decoded = greedy_decode(model, src, src_mask, max_len=10, start_symbol=1)
+        src = torch.LongTensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5]])
+        assert src.shape[-1] == sizes.src_seq
+        src_mask = torch.ones(1, 1, sizes.src_seq)
+        decoded = greedy_decode(model, src, src_mask, max_len=sizes.tgt_seq, start_symbol=1)
     return decoded
 
 
@@ -48,9 +49,12 @@ def main():
     torch.use_deterministic_algorithms(True)
 
     vocab_size = 10 + 1  # padding is included in the vocabulary, so +1
+    seq_len = 15
     sizes = Sizes(
         batch=30,
         n_batches=20,
+        src_seq=seq_len,
+        tgt_seq=seq_len,
         src_vocab=vocab_size,
         tgt_vocab=vocab_size,
         n_layers=2,
@@ -65,11 +69,11 @@ def main():
                         optimizer=torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
     # training
-    for epoch in range(15):
+    for epoch in range(10):
         model.train()
         print(f'Epoch: {epoch}')
         run_epoch(
-            data_gen(sizes.tgt_vocab, sizes.batch, sizes.n_batches),
+            data_gen(sizes.tgt_vocab, sizes.src_seq, sizes.batch, sizes.n_batches),
             model,
             SimpleLossCompute(model.generator, criterion, model_opt))
 
@@ -77,18 +81,18 @@ def main():
         with torch.no_grad():
             print('Evaluation on random sequence. ')
             loss_normed = run_epoch(
-                data_gen(vocab_size, sizes.batch, 5),
+                data_gen(sizes.tgt_vocab, sizes.src_seq, sizes.batch, 5),
                 model,
                 SimpleLossCompute(model.generator, criterion, None))
             print(f'Evaluation loss: {loss_normed}')
 
-        decoded = decode_on_sequential_source(model)
+        decoded = decode_on_sequential_source(model, sizes)
         print(f'Decoded on sequential source: {decoded}')
         print('=========================================')
 
     # Evaluation
     print('Final evaluation')
-    decoded = decode_on_sequential_source(model)
+    decoded = decode_on_sequential_source(model, sizes)
     print(f'Decoded on sequential source: {decoded}')
     print('Done.')
 

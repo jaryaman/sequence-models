@@ -13,7 +13,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # *** globals ***
-Sizes = namedtuple('Sizes', ['batch', 'n_batches', 'src_vocab', 'tgt_vocab', 'n_layers', 'emb', 'd_ff', 'h'])
+Sizes = namedtuple('Sizes',
+                   ['batch', 'n_batches', 'src_seq', 'tgt_seq', 'src_vocab', 'tgt_vocab', 'n_layers', 'emb', 'd_ff',
+                    'h'])
 
 
 # *** functions ***
@@ -38,11 +40,9 @@ def attention(query, key, value, mask=None, dropout=None):
 
 
 def make_model(sizes: 'Sizes', dropout=0.1):
-
     c = copy.deepcopy
     attn = MultiHeadedAttention(sizes.h, sizes.emb)
     ff = PositionwiseFeedForward(sizes.emb, sizes.d_ff, dropout)
-
 
     model = EncoderDecoder(
         Encoder(
@@ -69,7 +69,6 @@ def make_model(sizes: 'Sizes', dropout=0.1):
     return model
 
 
-
 # *** classes ***
 
 class EncoderDecoder(nn.Module):
@@ -93,14 +92,15 @@ class EncoderDecoder(nn.Module):
                  generator: 'Generator', sizes: 'Sizes', dropout: float = 0.0):
         super().__init__()
 
-        c = copy.deepcopy
-
         self.encoder = encoder
         self.decoder = decoder
 
-        position = PositionalEncoding(sizes.emb, dropout)
-        self.src_embed = nn.Sequential(Embeddings(sizes.src_vocab, sizes.emb), c(position))
-        self.tgt_embed = nn.Sequential(Embeddings(sizes.tgt_vocab, sizes.emb), c(position))
+        self.src_embed = nn.Sequential(Embeddings(sizes.src_vocab, sizes.emb),
+                                       PositionalEncoding(sizes.emb, dropout, sizes, is_enc=True),
+                                       )
+        self.tgt_embed = nn.Sequential(Embeddings(sizes.tgt_vocab, sizes.emb),
+                                       PositionalEncoding(sizes.emb, dropout, sizes, is_enc=False),
+                                       )
 
         self.generator = generator
         self.sizes = sizes
@@ -125,6 +125,8 @@ class EncoderDecoder(nn.Module):
 
     def encode(self, src, src_mask):
         """See Encoder.forward for details"""
+        if self.training:
+            assert src.shape == (self.sizes.batch, self.sizes.src_seq)
         return self.encoder(self.src_embed(src), src_mask)
 
     def decode(self, memory, src_mask, tgt, tgt_mask):
@@ -345,7 +347,7 @@ class PositionalEncoding(nn.Module):
     See https://arxiv.org/pdf/1705.03122.pdf for more details
     """
 
-    def __init__(self, d_emb, dropout, max_len=5000):
+    def __init__(self, d_emb, dropout, sizes: 'Sizes', is_enc=True, max_len=5000):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
@@ -357,8 +359,19 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
+
+        self.sizes = sizes
+        self.is_enc = is_enc
+
+        # register an object as part of the model's state, which isn't a parameter. Allows access as an attribute.
         self.register_buffer('pe', pe)
 
     def forward(self, x):
+        if self.training and self.is_enc:
+            assert x.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
+        elif self.training and not self.is_enc:
+            assert x.shape == (self.sizes.batch, self.sizes.tgt_seq - 1, self.sizes.emb)
+
         x = x + self.pe[:, :x.size(1)].clone().detach()
+
         return self.dropout(x)

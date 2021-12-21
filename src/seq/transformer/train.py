@@ -44,14 +44,14 @@ class Batch:
         self.src = src
         self.src_mask = (src != pad).unsqueeze(-2)
         if trg is not None:
-            self.trg = trg[:, :-1]
+            self.trg = trg[:, :-1]  # TODO: Why does the target lose the final token?
             self.trg_y = trg[:, 1:]
             self.trg_mask = self.make_std_mask(self.trg, pad)
             self.ntokens = (self.trg_y != pad).data.sum()
 
     @staticmethod
     def make_std_mask(tgt, pad):
-        "Create a mask to hide padding and future words"
+        """Create a mask to hide padding and future words"""
         tgt_mask = (tgt != pad).unsqueeze(-2)
         tgt_mask = tgt_mask & subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data)
 
