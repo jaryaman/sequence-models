@@ -54,26 +54,32 @@ def main():
         src_vocab=vocab_size,
         tgt_vocab=vocab_size,
         n_layers=2,
-        d_model=512,
+        emb=512,
         d_ff=2048,
         h=8,
         )
 
     criterion = LabelSmoothing(size=sizes.tgt_vocab, padding_idx=0, smoothing=0.1)
     model = make_model(sizes)
-    model_opt = NoamOpt(sizes.d_model, factor=1, warmup=400,
+    model_opt = NoamOpt(sizes.emb, factor=1, warmup=400,
                         optimizer=torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
     # training
     for epoch in range(15):
         model.train()
         print(f'Epoch: {epoch}')
-        run_epoch(data_gen(sizes.tgt_vocab, sizes.batch, sizes.n_batches), model, SimpleLossCompute(model.generator, criterion, model_opt))
+        run_epoch(
+            data_gen(sizes.tgt_vocab, sizes.batch, sizes.n_batches),
+            model,
+            SimpleLossCompute(model.generator, criterion, model_opt))
 
         model.eval()
         with torch.no_grad():
             print('Evaluation on random sequence. ')
-            loss_normed = run_epoch(data_gen(vocab_size, sizes.batch, 5), model, SimpleLossCompute(model.generator, criterion, None))
+            loss_normed = run_epoch(
+                data_gen(vocab_size, sizes.batch, 5),
+                model,
+                SimpleLossCompute(model.generator, criterion, None))
             print(f'Evaluation loss: {loss_normed}')
 
         decoded = decode_on_sequential_source(model)
