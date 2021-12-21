@@ -96,10 +96,10 @@ class EncoderDecoder(nn.Module):
         self.decoder = decoder
 
         self.src_embed = nn.Sequential(Embeddings(sizes.src_vocab, sizes.emb),
-                                       PositionalEncoding(sizes.emb, dropout, sizes, is_output=True),
+                                       PositionalEncoding(sizes.emb, dropout, sizes, is_source=True),
                                        )
         self.tgt_embed = nn.Sequential(Embeddings(sizes.tgt_vocab, sizes.emb),
-                                       PositionalEncoding(sizes.emb, dropout, sizes, is_output=False),
+                                       PositionalEncoding(sizes.emb, dropout, sizes, is_source=False),
                                        )
 
         self.generator = generator
@@ -344,12 +344,28 @@ class Embeddings(nn.Module):
 class PositionalEncoding(nn.Module):
     """Implement positional encoding.
 
-    Adds a sinusoid based on position. The frequency and offset of the wave is different for each dimension.
+    Adds a sinusoid to the embedding space based on position so that the model has information about relative or
+    absolute position. The frequency and offset of the wave is different for each embedding dimension.
 
     See https://arxiv.org/pdf/1705.03122.pdf for more details
     """
 
-    def __init__(self, d_emb, dropout, sizes: 'Sizes', is_output=True, max_len=5000):
+    def __init__(self, d_emb: int, dropout: float, sizes: 'Sizes', is_source: bool = True, max_len: int = 5000):
+        """
+        Parameters
+        ----------
+        d_emb: int
+            The embedding dimension
+        dropout: float
+            Dropout probability to apply to output, after positional embedding
+        sizes: Sizes
+            Model sizes
+        is_source: bool
+            If True, then this positional encoding is for the source sequences. Otherwise it is for the target
+            sequences. This is just used for shape checking.
+        max_len: int
+            The maximum length of any sequence to have positional encoding applied.
+        """
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
@@ -358,20 +374,20 @@ class PositionalEncoding(nn.Module):
         position = torch.arange(0, max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_emb, 2) *
                              -(math.log(10000.0) / d_emb))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
+        pe[:, 0::2] = torch.sin(position * div_term)  # even-numbered dimensions
+        pe[:, 1::2] = torch.cos(position * div_term)  # odd-numbered dimensions
         pe = pe.unsqueeze(0)
 
         self.sizes = sizes
-        self.is_output = is_output
+        self.is_output = is_source
 
         # register an object as part of the model's state, which isn't a parameter. Allows access as an attribute.
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        if self.training and self.is_output:
+        if self.training and self.is_source:
             assert x.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
-        elif self.training and not self.is_output:
+        elif self.training and not self.is_source:
             assert x.shape == (self.sizes.batch, self.sizes.tgt_seq - 1, self.sizes.emb)
 
         x = x + self.pe[:, :x.size(1)].clone().detach()
