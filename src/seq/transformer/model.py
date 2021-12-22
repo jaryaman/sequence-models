@@ -3,7 +3,7 @@
 see http://nlp.seas.harvard.edu/2018/04/03/attention.html
 and https://arxiv.org/pdf/1706.03762.pdf
 """
-
+from typing import Callable
 import copy
 import math
 from collections import namedtuple
@@ -51,7 +51,7 @@ def make_model(sizes: 'Sizes', dropout=0.1):
             sizes),
         Decoder(
             DecoderLayer(
-                sizes.emb, c(attn), c(attn), c(ff), dropout),
+                sizes.emb, c(attn), c(attn), c(ff), dropout, sizes),
             sizes.n_layers,
             sizes),
         Generator(sizes.emb, sizes.tgt_vocab, sizes),
@@ -215,25 +215,35 @@ class LayerNorm(nn.Module):
 class SublayerConnection(nn.Module):
     """A residual connection followed by a layer norm."""
 
-    def __init__(self, size, dropout):
+    def __init__(self, size, dropout, sizes: 'Sizes'):
         super().__init__()
         self.norm = LayerNorm(size)
         self.dropout = nn.Dropout(dropout)
+        self.sizes = sizes
 
-    def forward(self, x, sublayer):
+    def forward(self, x: torch.Tensor, sublayer: Callable):
         """Apply residual connection to any sublayer with the same size.
 
         Parameters
         ----------
-        x:
-            TODO
+        x: torch.Tensor
+            Input for a layer of the network
         sublayer:
-            TODO
+            A layer of the network
 
         Returns
         -------
+        torch.Tensor:
+            Performs layer normalization, applies the layer, then dropout, and
+            finally adds the output onto the original input
 
+        Notes
+        -----
+        This is called "Add & Norm" in Figure 1 of Attention is All You Need.
         """
+        n_batches, seq_len = x.size(0), x.size(1)
+        assert x.shape == (n_batches, seq_len, self.sizes.emb)
+
         return x + self.dropout(sublayer(self.norm(x)))
 
 
@@ -245,18 +255,21 @@ class EncoderLayer(nn.Module):
         super().__init__()
         self.self_attn = self_attn
         self.feed_forward = feed_forward
-        self.sublayer = clones(SublayerConnection(sizes.emb, dropout), 2)
+        self.sublayer = clones(SublayerConnection(sizes.emb, dropout, sizes), 2)
 
         self.sizes = sizes
 
     def forward(self, x, mask):
         """Follow Figure 1 (left) for connections"""
-        if self.training:
-            assert x.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
+        n_batches = x.size(0)
 
+        assert x.shape == (n_batches, self.sizes.src_seq, self.sizes.emb)
         x = self.sublayer[0](x, lambda i: self.self_attn(i, i, i, mask))
+        assert x.shape == (n_batches, self.sizes.src_seq, self.sizes.emb)
 
-        return self.sublayer[1](x, self.feed_forward)
+        res = self.sublayer[1](x, self.feed_forward)
+        assert res.shape == (n_batches, self.sizes.src_seq, self.sizes.emb)
+        return res
 
 
 class Decoder(nn.Module):
@@ -277,13 +290,13 @@ class Decoder(nn.Module):
 class DecoderLayer(nn.Module):
     """Decoder is made of self-attn, src-attn, and feed forward"""
 
-    def __init__(self, size, self_attn, src_attn, feed_forward, dropout):
+    def __init__(self, size, self_attn, src_attn, feed_forward, dropout, sizes: 'Sizes'):
         super().__init__()
         self.size = size
         self.self_attn = self_attn
         self.src_attn = src_attn
         self.feed_forward = feed_forward
-        self.sublayer = clones(SublayerConnection(size, dropout), 3)
+        self.sublayer = clones(SublayerConnection(size, dropout, sizes), 3)
 
     def forward(self, x, memory, src_mask, tgt_mask):
         """Follow Figure 1 (right) for connections"""
@@ -312,22 +325,27 @@ class MultiHeadedAttention(nn.Module):
             # Same mask applied to all h heads
             mask = mask.unsqueeze(1)
 
-        nbatches, other_dim = query.size(0), query.size(1)  # TODO: Is other_dim always sequence length?
+        nbatches, seq_len = query.size(0), query.size(1)
 
         # 1) Apply a linear projection on Q, K, V for all batches, and then reshape the embedding dimension such that
         # d_emb -> h x d_k. This assumes d_v == d_k, although in general it need not be the case.
-        assert query.shape == (nbatches, other_dim, self.sizes.emb)
+        assert query.shape == (nbatches, seq_len, self.sizes.emb)
         query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
                              for l, x in zip(self.linears, (query, key, value))
                              ]
-        assert query.shape == (nbatches, self.h, other_dim, self.d_k)  # similar for the rest
+        assert query.shape == (nbatches, self.h, seq_len, self.d_k)  # similar for the rest
 
         # 2) Apply attention on all the projected vectors in batch
         x, self.attn = attention(query, key, value, mask, dropout=self.dropout)
 
         # 3) "Concat" using a view and apply a final linear layer
         x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
-        return self.linears[-1](x)
+
+        # 4) Linear layer
+        res = self.linears[-1](x)
+        assert res.shape == (nbatches, seq_len, self.sizes.emb)
+
+        return res
 
 
 class PositionwiseFeedForward(nn.Module):
