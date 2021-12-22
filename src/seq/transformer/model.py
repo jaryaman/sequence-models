@@ -164,7 +164,7 @@ class Encoder(nn.Module):
     def __init__(self, layer: 'EncoderLayer', N: int, sizes: Sizes):
         super().__init__()
         self.layers = clones(layer, N)
-        self.norm = LayerNorm(layer.sizes.emb)
+        self.norm = LayerNorm(layer.sizes.emb, sizes)
         self.sizes = sizes
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor):
@@ -191,22 +191,23 @@ class Encoder(nn.Module):
 
 
 class LayerNorm(nn.Module):
-    """Construct a layernorm module.
+    """Apply layer normalization.
 
     Notes
     -----
-    See https://arxiv.org/abs/1512.03385 for residual connection
-    See https://arxiv.org/abs/1607.06450 for layer normalization
-    TODO: Read and write up
+    See https://arxiv.org/abs/1607.06450
     """
 
-    def __init__(self, features, eps=1e-6):
+    def __init__(self, features, sizes: 'Sizes', eps=1e-6):
         super().__init__()
-        self.a_2 = nn.Parameter(torch.ones(features))
-        self.b_2 = nn.Parameter(torch.zeros(features))
+        self.a_2 = nn.Parameter(torch.ones(features))  # gain
+        self.b_2 = nn.Parameter(torch.zeros(features))  # bias
         self.eps = eps
+        self.sizes = sizes
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
+        assert x.size(-1) == self.sizes.emb
+
         mean = x.mean(-1, keepdim=True)
         std = x.std(-1, keepdim=True)
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
@@ -217,7 +218,7 @@ class SublayerConnection(nn.Module):
 
     def __init__(self, size, dropout, sizes: 'Sizes'):
         super().__init__()
-        self.norm = LayerNorm(size)
+        self.norm = LayerNorm(size, sizes)
         self.dropout = nn.Dropout(dropout)
         self.sizes = sizes
 
@@ -240,11 +241,17 @@ class SublayerConnection(nn.Module):
         Notes
         -----
         This is called "Add & Norm" in Figure 1 of Attention is All You Need.
+        See https://arxiv.org/abs/1512.03385 for residual connection.
         """
         n_batches, seq_len = x.size(0), x.size(1)
         assert x.shape == (n_batches, seq_len, self.sizes.emb)
 
+        # Note: This actually disagrees with the paper, but is apparently an improvement on what is verbatim stated
+        # see: https://github.com/OpenNMT/OpenNMT-py/issues/770
+        # The verbatim implementation in the paper would have been
+        # return self.norm(x + self.dropout(sublayer(x)))
         return x + self.dropout(sublayer(self.norm(x)))
+
 
 
 class EncoderLayer(nn.Module):
@@ -278,7 +285,7 @@ class Decoder(nn.Module):
     def __init__(self, layer, N, sizes: 'Sizes'):
         super().__init__()
         self.layers = clones(layer, N)
-        self.norm = LayerNorm(layer.size)
+        self.norm = LayerNorm(layer.size, sizes)
         self.sizes = sizes
 
     def forward(self, x, memory, src_mask, tgt_mask):

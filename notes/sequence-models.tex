@@ -316,6 +316,13 @@ where $W^O \in \mathbb{R}^{h d_v \times \demb}$, see Fig.~\ref{fig:multi_head_at
 \label{fig:multi_head_attn}
 \end{figure}
 
+\subsection{Add \& norm}
+Every point in Fig.~\ref{fig:tfm} with the step ``add \& norm'' implements a layer normalization \citep{Ba16}, dropout, and then a residual connection\footnote{This is actually not what is said in the paper, but what modern implementations do because it's apparently better, \href{https://github.com/OpenNMT/OpenNMT-py/issues/770}{see here}.} \citep{He16}. This corresponds to
+\begin{align}
+\text{AddAndNorm}(x) &= x + \text{Dropout}(\text{Sublayer}(\text{LayerNorm}(x))) \\
+\text{LayerNorm}(x) &= a \cdot \frac{x - \bar{x}}{s_x + \epsilon} + b
+\end{align}
+where $\bar{x}$ is the sample mean of $x$ over the final dimension (for us, $\demb$), $s_x$ is the sample standard deviation over the final dimension. $a$ and $b$ are learnable scalar parameters called the gain and bias respectively. $\text{Sublayer}(x)$ refers to the layer immediately preceding $\text{AddAndNorm}(x)$ in Fig.~\ref{fig:tfm} -- either multi-head attention or a feed-forward layer. The layer is called a residual connection because it is of the form $f(x) = x + R$, so the network is trying to learn residuals rather than $f(x)$ outright \citep{He16}.
 
 
 \section{Loss functions}
