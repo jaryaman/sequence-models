@@ -245,15 +245,24 @@ The context vector $c_i$ depends upon the full sequence of encoder hidden states
 \begin{equation}
 c_i = \sum_{j=1}^{T_x} \alpha_{ij} h_j \label{eq:bah-attn-mech}
 \end{equation}
-where $\alpha_{ij}$ is an \textbf{attention probability}, defined by
+where $\alpha_{ij}$ is an \textbf{attention probability}. In this equation, $h_j$ is commonly referred to as a ``\textbf{value}'' ($V$), as it is the quantity being reweighted by an attention mechanism ($\alpha$). The attention probability is defined by
 \begin{equation}
-\alpha_{ij} = \frac{\exp(e_{ij})}{\sum_{k=1}^{T_x}\exp(e_{ik})}
+\alpha_{ij} = \text{softmax}\left( e_{ij} \right) = \frac{\exp(e_{ij})}{\sum_{k=1}^{T_x}\exp(e_{ik})}
 \end{equation}
 where $e_{ij}$ is an \textbf{attention energy} defined by an \textbf{alignment model}
 \begin{equation}
 e_{ij} = a(s_{i-1}, h_j) = v_a^T \tanh(W_a s_{i-1} + U_a h_j)
 \end{equation}
-where $W_a \in \mathbb{R}^{n \times n}$, $U_a \in \mathbb{R}^{n \times 2n}$ and $v_a \in \mathbb{R^n}$. The alignment models scores how well the inputs around position $j$ and the output at position $j$ match. The context vector for output position $j$ is therefore a reweighting of the input sequence annotations, according to the `probability' that a particular input is `relevant' for the current output position $j$. See \verb#seq.enc_dec_attn# for an implementation.
+where $W_a \in \mathbb{R}^{n \times n}$, $U_a \in \mathbb{R}^{n \times 2n}$ and $v_a \in \mathbb{R}^n$. $W_a s_{i-1}$ is commonly referred to as a ``\textbf{query}'' ($Q$), as $s_{i-1}$ is the information being used to look up which of the encoder states to combine with. $U_a h_j$ is referred to as the ``\textbf{key}'' ($K$) -- which is the quantity being reweighted.
+
+The alignment models scores how well the inputs around position $j$ and the output at position $j$ match. The context vector for output position $j$ is therefore a reweighting of the input sequence annotations, according to the `probability' that a particular input is `relevant' for the current output position $j$. See \verb#seq.enc_dec_attn# for an implementation.
+
+\subsection{Scaled dot product attention} \label{sec:dp-attn}
+Scaled dot product attention is a slightly simpler approach to attention than Bahdanau attention. We simply pack together a set of $n$ queries, keys, and values into matrices $Q$, $K$, and $V$ respectively. We then compute the function
+\begin{equation}
+\text{Attention}(Q, K, V) = \text{softmax}\left( \frac{QK^T}{\sqrt{d_k}} \right) V
+\end{equation}
+where $Q, K \in \mathbb{R}^{n \times d_k}$ and $V \in \mathbb{R}^{n \times d_v}$. The factor of $\sqrt{d_k}$ attempts to reduce the variance of the dot product, and therefore keep the softmax function in regions of non-negligible gradient.
 
 \newcommand{\dmodel}{d_{\text{model}}}
 
@@ -271,9 +280,9 @@ Transformers \citep{Vaswani17} use regular-old embeddings for the source and tar
 \label{fig:tfm}
 \end{figure}
 
-
+\newcommand{\demb}{d_{\text{emb}}}
 \subsection{Positional encoding}
-After generating the embeddings, we \textbf{add} a different sinusoidal function to each dimension of the embedding, where the sinusoid is continuous along the sequence length of the input (namely either the source or target). Doing this gives the input positional information, which is necessary as there are no recurrent or convolutional components to the architecture. For dimension $i$, at position $pos$, we add the following functions to the embeddings
+After generating the embeddings, we \textbf{add} a different sinusoidal function to each dimension of the embedding $\demb$, where the sinusoid is continuous along the sequence length of the input (namely either the source or target). Doing this gives the input positional information, which is necessary as there are no recurrent or convolutional components to the architecture. For dimension $i$, at position $pos$, we add the following functions to the embeddings
 \begin{align}
 PE_{pos, 2i} &= \sin\left(pos/10000^{2i/\dmodel}\right) \\
 PE_{pos, 2i+1} &= \cos\left(pos/10000^{2i/\dmodel}\right). 
@@ -287,6 +296,26 @@ In other words, for even dimensions we add a sine wave and for odd dimensions we
 \caption{Positional encodings. The $x$-axis corresponds to position along the sequence ($pos$). The vertical axis is the value of $PE_{pos, i}$. Notice how each function has a different frequency, and the phase at $pos=0$ alternates between odd and even dimensions.}
 \label{fig:pos_enc}
 \end{figure}
+
+\subsection{Multi-head attention}
+Transformers use scaled dot product attention (Section~\ref{sec:dp-attn}), but instead of performing a single attention function with $\demb$-dimensional keys, values, and queries, they instead linearly project the queries, keys, and values $h$ times with different learnt linear projections, these are called ``\textbf{attention heads}''
+\begin{equation}
+\text{head}_i = \text{Attention}(QW_i^Q, KW_i^K, VW_i^V), \text{for } i = 1,...,h
+\end{equation}
+where $W_i^Q, W_i^K \in \mathbb{R}^{\demb \times d_k}$, $W_i^V \in \mathbb{R}^{\demb \times d_v}$ and $d_v \cdot h = d_k \cdot h = \demb$. They then concatenate each of the attention heads and apply a linear transformation
+\begin{equation}
+\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, ..., \text{head}_h) \cdot W^O
+\end{equation}
+where $W^O \in \mathbb{R}^{h d_v \times \demb}$, see Fig.~\ref{fig:multi_head_attn}. Multi-head attention allows the model to jointly attend to information from different representation subspaces, at different positions. 
+
+\begin{figure}
+\begin{center}
+\includegraphics[width=0.7\columnwidth]{../figures/multi-head-attn.jpg}  
+\end{center}
+\caption{Attention mechanisms for transformers. (Left) Depiction of scaled dot-product attentions (see Section~\ref{sec:dp-attn}. Masking can be used to induce non-anticipation in the attention mechanism of the target, i.e. not using future tokens of the target to generate a prediction. Masking is also used for padding. (Right) Depiction of multi-head attention. Queries/keys/values are projected into smaller subspaces of dimension $d_k$/$d_k$/$d_v$ respectively. This is done $h$ times for all of the queries/keys/values. Scaled dot-product attention is applied to each of these attention heads. The attention heads are then concatenated together to recover the original dimension of the objects. Finally, a linear transformation is applied.}
+\label{fig:multi_head_attn}
+\end{figure}
+
 
 
 \section{Loss functions}

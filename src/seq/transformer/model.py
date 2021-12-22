@@ -26,7 +26,7 @@ def clones(module: nn.Module, N: int):
 
 def attention(query, key, value, mask=None, dropout=None):
     """Compute 'Scaled Dot Product Attention'. This is a faster/more memory efficient alternative to additive attention
-    in Bahdanau. TODO: Understand this better. This omits the alignment model.
+    in Bahdanau.
     """
     d_k = query.size(-1)
     # scaling controls the variance of the dot-product, so we control the vanishing gradient problem
@@ -297,7 +297,8 @@ class MultiHeadedAttention(nn.Module):
     def __init__(self, sizes: 'Sizes', dropout: float = 0.1):
         super().__init__()
         assert sizes.emb % sizes.h == 0
-        # Assume d_v == d_k  # TODO: ?
+
+        # Assume d_v == d_k
         self.d_k = sizes.emb // sizes.h
         self.h = sizes.h
         self.linears = clones(nn.Linear(sizes.emb, sizes.emb), 4)
@@ -307,16 +308,19 @@ class MultiHeadedAttention(nn.Module):
         self.sizes = sizes
 
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask: torch.Tensor = None):
-        """Implements Figure 2. TODO: Understand better"""
         if mask is not None:
             # Same mask applied to all h heads
             mask = mask.unsqueeze(1)
-        nbatches = query.size(0)
 
-        # 1) Do all the linear projections in batch from d_emb => h x d_k
+        nbatches, other_dim = query.size(0), query.size(1)  # TODO: Is other_dim always sequence length?
+
+        # 1) Apply a linear projection on Q, K, V for all batches, and then reshape the embedding dimension such that
+        # d_emb -> h x d_k. This assumes d_v == d_k, although in general it need not be the case.
+        assert query.shape == (nbatches, other_dim, self.sizes.emb)
         query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
                              for l, x in zip(self.linears, (query, key, value))
                              ]
+        assert query.shape == (nbatches, self.h, other_dim, self.d_k)  # similar for the rest
 
         # 2) Apply attention on all the projected vectors in batch
         x, self.attn = attention(query, key, value, mask, dropout=self.dropout)
