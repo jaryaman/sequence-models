@@ -1,0 +1,17 @@
+name: sequence-models
+channels:
+  - defaults
+dependencies:
+  - python=3.9
+  - pytorch
+  - torchvision
+  - torchaudio
+  - cpuonly
+  - ca-certificates
+  - certifi
+  - openssl
+  - pandas
+  - matplotlib
+  - pytest
+  - jupyterlab
+prefix: C:\Users\jarya\miniconda3\envs\sequence-models
