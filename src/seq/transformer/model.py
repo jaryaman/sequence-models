@@ -128,10 +128,21 @@ class EncoderDecoder(nn.Module):
         """See Encoder.forward for details"""
         if self.training:
             assert src.shape == (self.sizes.batch, self.sizes.src_seq)
-        return self.encoder(self.src_embed(src), src_mask)
+
+        memory = self.encoder(self.src_embed(src), src_mask)
+
+        if self.training:
+            assert memory.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
+
+        return memory
 
     def decode(self, memory, src_mask, tgt, tgt_mask):
         """See Decoder.forward for details"""
+        if self.training:
+            assert memory.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
+            assert src_mask.shape == (self.sizes.batch, 1, self.sizes.src_seq)
+            assert tgt.shape == (self.sizes.batch, self.sizes.tgt_seq - 1)  # -1 because sequences are right-shifted by 1 token
+
         return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
 
@@ -180,14 +191,20 @@ class Encoder(nn.Module):
         Returns
         -------
         torch.Tensor:
-            Encoded inputs
+            Encoded inputs. Called `memory` by the decoder.
         """
         if self.training:
             assert x.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
 
-        for layer in self.layers:
-            x = layer(x, mask)
-        return self.norm(x)
+        for layer in self.layers:  # Nx layers
+            x = layer(x, mask)  # the big square box in Fig 1 of Attention is All You Need
+
+        memory = self.norm(x)  # TODO: not sure this final norm is actually in the paper, it's already in SublayerConnection
+
+        if self.training:
+            assert memory.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
+
+        return memory
 
 
 class LayerNorm(nn.Module):
@@ -356,7 +373,7 @@ class MultiHeadedAttention(nn.Module):
 
 
 class PositionwiseFeedForward(nn.Module):
-    """Implements FFN equation"""
+    """Fully connected feed-forward network (FFN(x))"""
 
     def __init__(self, d_emb, d_ff, dropout=0.1):
         super().__init__()
