@@ -264,12 +264,11 @@ Scaled dot product attention is a slightly simpler approach to attention than Ba
 \end{equation}
 where $Q, K \in \mathbb{R}^{n \times d_k}$ and $V \in \mathbb{R}^{n \times d_v}$. The factor of $\sqrt{d_k}$ attempts to reduce the variance of the dot product, and therefore keep the softmax function in regions of non-negligible gradient.
 
-\newcommand{\dmodel}{d_{\text{model}}}
+\newcommand{\demb}{d_{\text{emb}}}
 
 \section{Transformers}
 
-
-Transformers \citep{Vaswani17} use an encoder/decoder architecture, where the embedding dimension is denoted as $\dmodel$. See Fig.~\ref{fig:tfm} for how the model is wired up, the subsections for detail on the sublayers, and \verb+seq.transformer+ for an implementation.
+Transformers \citep{Vaswani17} use an encoder/decoder architecture, where we'll denote the embedding dimension as $\demb$ (they call it $d_{\text{model}}$ in the paper, but I prefer $\demb$). The following subsections contain detail on each of the sublayers. See Fig.~\ref{fig:tfm} for how the model is wired up, and \verb+seq.transformer+ for an implementation.
 
 \begin{figure}
 \begin{center}
@@ -279,12 +278,12 @@ Transformers \citep{Vaswani17} use an encoder/decoder architecture, where the em
 \label{fig:tfm}
 \end{figure}
 
-\newcommand{\demb}{d_{\text{emb}}}
+
 \subsection{Positional encoding} \label{sec:pos_enc}
-After generating the embeddings, we \textbf{add} a different sinusoidal function to each dimension of the embedding $\demb$, where the sinusoid is continuous along the sequence length of the input (namely either the source or target). Doing this gives the input positional information, which is necessary as there are no recurrent or convolutional components to the architecture. For dimension $i$, at position $pos$, we add the following functions to the embeddings
+After generating the embeddings, we \textbf{add} a different sinusoidal function to each dimension of the embedding, where the sinusoid is continuous along the sequence length of the input (namely either the source or target). Doing this gives the input positional information, which is necessary as there are no recurrent or convolutional components to the architecture. For dimension $i$, at position $pos$, we add the following functions to the embeddings
 \begin{align}
-PE_{pos, 2i} &= \sin\left(pos/10000^{2i/\dmodel}\right) \\
-PE_{pos, 2i+1} &= \cos\left(pos/10000^{2i/\dmodel}\right). 
+PE_{pos, 2i} &= \sin\left(pos/10000^{2i/\demb}\right) \\
+PE_{pos, 2i+1} &= \cos\left(pos/10000^{2i/\demb}\right). 
 \end{align}
 In other words, for even dimensions we add a sine wave and for odd dimensions we add a cosine wave, and each dimension goes in a geometric progression of frequency. The intuition is that for any fixed offset $k$, then $PE_{pos+k},i \propto PE_{pos},i$ which is easy to learn and should help the model attend to relative positions. [\textbf{TODO: Don't quite follow the intuition here.}]
 
@@ -292,12 +291,12 @@ In other words, for even dimensions we add a sine wave and for odd dimensions we
 \begin{center}
 \includegraphics[width=0.7\columnwidth]{../figures/pos_enc.jpg}  
 \end{center}
-\caption{Positional encodings. The $x$-axis corresponds to position along the sequence ($pos$). The vertical axis is the value of $PE_{pos, i}$. Notice how each function has a different frequency, and the phase at $pos=0$ alternates between odd and even dimensions.}
+\caption{Positional encodings. The $x$-axis corresponds to position along the sequence ($pos$). The vertical axis is the value of $PE_{pos, i}$ for dimension $i$. Notice how each function has a different frequency, and the phase at $pos=0$ alternates between odd and even dimensions.}
 \label{fig:pos_enc}
 \end{figure}
 
 \subsection{Multi-head attention} \label{sec:multi_head_attn}
-Transformers use scaled dot product attention (Section~\ref{sec:dp-attn}), but instead of performing a single attention function with $\demb$-dimensional keys, values, and queries, they instead linearly project the queries, keys, and values $h$ times with different learnt linear projections, these are called ``\textbf{attention heads}''
+Transformers use scaled dot product attention (Section~\ref{sec:dp-attn}), but instead of performing a single attention function with $\demb$-dimensional keys, values, and queries, they instead break the space up into $h$ subspaces via (learnt) linear projections on the queries, keys, and values. They then perform scaled dot-product attention on each of these $h$ subspaces, which they call ``\textbf{attention heads}'':
 \begin{equation}
 \text{head}_i = \text{Attention}(QW_i^Q, KW_i^K, VW_i^V), \text{for } i = 1,...,h
 \end{equation}
@@ -305,7 +304,7 @@ where $W_i^Q, W_i^K \in \mathbb{R}^{\demb \times d_k}$, $W_i^V \in \mathbb{R}^{\
 \begin{equation}
 \text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, ..., \text{head}_h) \cdot W^O
 \end{equation}
-where $W^O \in \mathbb{R}^{h d_v \times \demb}$, see Fig.~\ref{fig:multi_head_attn}. Multi-head attention allows the model to jointly attend to information from different representation subspaces, at different positions. 
+where $W^O \in \mathbb{R}^{h d_v \times \demb}$, to pop the result back into $\mathbb{R}^{\demb}$ (see Fig.~\ref{fig:multi_head_attn}). Multi-head attention allows the model to jointly attend to information from different representation subspaces, at different positions. 
 
 \begin{figure}
 \begin{center}
