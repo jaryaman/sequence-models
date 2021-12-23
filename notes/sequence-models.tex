@@ -269,19 +269,18 @@ where $Q, K \in \mathbb{R}^{n \times d_k}$ and $V \in \mathbb{R}^{n \times d_v}$
 \section{Transformers}
 
 
-\subsection{Embedding}
-Transformers \citep{Vaswani17} use regular-old embeddings for the source and target (see Fig.~\ref{fig:tfm}). The embedding dimension is $\dmodel$.
+Transformers \citep{Vaswani17} use an encoder/decoder architecture, where the embedding dimension is denoted as $\dmodel$. See Fig.~\ref{fig:tfm} for how the model is wired up, the subsections for detail on the sublayers, and \verb+seq.transformer+ for an implementation.
 
 \begin{figure}
 \begin{center}
 \includegraphics[width=0.4\columnwidth]{../figures/transformer.jpg}  
 \end{center}
-\caption{The infamous transformer diagram.}
+\caption{The infamous transformer diagram. Left is the encoder, right is the decoder. (Left) Tokenized input sentences are placed in an embedding space, and then a sinusoidal function (called a positional encoding, see Section~\ref{sec:pos_enc}) is added onto the embeddings, so the model has access to positional information. The embeddings are then fed through multi-head self-attention (Section~\ref{sec:multi_head_attn}), a normalization step via a residual connection (Section~\ref{sec:add_and_norm}), and finally a fully-connected feed-forward network with another normalization/residual connection. This is all repeated $N_x$ times. (Right) Has all the same ingredients as the encoder, just wired differently. Again, the tokenized output sentences are placed in an embedding space, and positionally encoded. Embeddings are then fed through multi-head self-attention, with normalization/residual connection. The output of the encoder is fed into multi-head attention as the keys ($K$) and values ($V$), and the output of the decoder's self-attention the query ($Q$), with normalization/residual connection. Lastly, we apply a fully-connected feed-forward network, with normalization/residual connection. This is all repeated $N_x$ times. A linear projection and softmax are finally used to generate probabilities over the output vocabulary.}
 \label{fig:tfm}
 \end{figure}
 
 \newcommand{\demb}{d_{\text{emb}}}
-\subsection{Positional encoding}
+\subsection{Positional encoding} \label{sec:pos_enc}
 After generating the embeddings, we \textbf{add} a different sinusoidal function to each dimension of the embedding $\demb$, where the sinusoid is continuous along the sequence length of the input (namely either the source or target). Doing this gives the input positional information, which is necessary as there are no recurrent or convolutional components to the architecture. For dimension $i$, at position $pos$, we add the following functions to the embeddings
 \begin{align}
 PE_{pos, 2i} &= \sin\left(pos/10000^{2i/\dmodel}\right) \\
@@ -297,7 +296,7 @@ In other words, for even dimensions we add a sine wave and for odd dimensions we
 \label{fig:pos_enc}
 \end{figure}
 
-\subsection{Multi-head attention}
+\subsection{Multi-head attention} \label{sec:multi_head_attn}
 Transformers use scaled dot product attention (Section~\ref{sec:dp-attn}), but instead of performing a single attention function with $\demb$-dimensional keys, values, and queries, they instead linearly project the queries, keys, and values $h$ times with different learnt linear projections, these are called ``\textbf{attention heads}''
 \begin{equation}
 \text{head}_i = \text{Attention}(QW_i^Q, KW_i^K, VW_i^V), \text{for } i = 1,...,h
@@ -316,7 +315,7 @@ where $W^O \in \mathbb{R}^{h d_v \times \demb}$, see Fig.~\ref{fig:multi_head_at
 \label{fig:multi_head_attn}
 \end{figure}
 
-\subsection{Add \& norm}
+\subsection{Add \& norm} \label{sec:add_and_norm}
 Every point in Fig.~\ref{fig:tfm} with the step ``add \& norm'' implements a layer normalization \citep{Ba16}, dropout, and then a residual connection\footnote{This is actually not what is said in the paper, but what modern implementations do because it's apparently better, \href{https://github.com/OpenNMT/OpenNMT-py/issues/770}{see here}.} \citep{He16}. This corresponds to
 \begin{align}
 \text{AddAndNorm}(x) &= x + \text{Dropout}(\text{Sublayer}(\text{LayerNorm}(x))) \\
