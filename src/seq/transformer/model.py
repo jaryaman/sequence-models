@@ -3,10 +3,10 @@
 see http://nlp.seas.harvard.edu/2018/04/03/attention.html
 and https://arxiv.org/pdf/1706.03762.pdf
 """
-from typing import Callable
 import copy
 import math
 from collections import namedtuple
+from typing import Callable
 
 import torch
 import torch.nn as nn
@@ -81,7 +81,7 @@ class EncoderDecoder(nn.Module):
         Encodes a batched sequence of padded word embeddings, returning output for each input sequence and
         final hidden state (concatenation of forwards and backwards final RNN states)
     decoder: Decoder
-        TODO
+        Decodes a batched sequence of padded target embeddings, and combines with the encoder output
     generator: Generator
         Layer to consume matrix of decoder pre_output hidden states, and output probabilities over the vocabulary
 
@@ -117,12 +117,20 @@ class EncoderDecoder(nn.Module):
             Boolean array of elements that are not padding (src)
         tgt_mask: torch.Tensor
             Boolean array of elements that are not padding (tgt)
+
+        Returns
+        -------
+        torch.Tensor:
+            Embedding vector, for every word in the target, for every sentence in the batch
         """
         assert src.shape == (self.sizes.batch, self.sizes.src_seq)
-        assert tgt.shape == (self.sizes.batch, self.sizes.tgt_seq - 1)  # TODO: Why? (Shifted right)
+        assert tgt.shape == (self.sizes.batch, self.sizes.tgt_seq - 1)  # -1 because the target is shifted right by 1
 
-        return self.decode(self.encode(src, src_mask), src_mask,
+        res = self.decode(self.encode(src, src_mask), src_mask,
                            tgt, tgt_mask)
+
+        assert res.shape == (self.sizes.batch, self.sizes.tgt_seq - 1, self.sizes.emb)
+        return res
 
     def encode(self, src, src_mask):
         """See Encoder.forward for details"""
@@ -141,7 +149,8 @@ class EncoderDecoder(nn.Module):
         if self.training:
             assert memory.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
             assert src_mask.shape == (self.sizes.batch, 1, self.sizes.src_seq)
-            assert tgt.shape == (self.sizes.batch, self.sizes.tgt_seq - 1)  # -1 because sequences are right-shifted by 1 token
+            assert tgt.shape == (
+            self.sizes.batch, self.sizes.tgt_seq - 1)  # -1 because sequences are right-shifted by 1 token
 
         return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
 
@@ -149,24 +158,33 @@ class EncoderDecoder(nn.Module):
 class Generator(nn.Module):
     """Define standard linear + softmax generation step to create probabilities"""
 
-    def __init__(self, d_emb, vocab_size, sizes):
+    def __init__(self, d_emb, vocab_size, sizes: 'Sizes'):
         super().__init__()
         self.proj = nn.Linear(d_emb, vocab_size, bias=False)
         self.sizes = sizes
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         """
 
         Parameters
         ----------
-        x:
-            TODO
+        x: torch.Tensor
+            Output after the RHS box of Fig 1 from Attention is All You Need
 
         Returns
         -------
-
+        probs: torch.Tensor
+            Probabilities over the target vocabulary
         """
-        return F.log_softmax(self.proj(x), dim=-1)
+        nbatches = x.size(0)
+
+        probs = F.log_softmax(self.proj(x), dim=-1)
+
+        if self.training:
+            # -1 because we are always given the first token, and make predictions for all tokens afterwards
+            assert probs.shape == (nbatches, self.sizes.tgt_seq - 1, self.sizes.tgt_vocab)
+
+        return probs
 
 
 class Encoder(nn.Module):
@@ -197,9 +215,10 @@ class Encoder(nn.Module):
             assert x.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
 
         for layer in self.layers:  # Nx layers
-            x = layer(x, mask)  # the big square box in Fig 1 of Attention is All You Need
+            x = layer(x, mask)  # the big square box in left of Fig 1 of Attention is All You Need
 
-        memory = self.norm(x)  # TODO: not sure this final norm is actually in the paper, it's already in SublayerConnection
+        memory = self.norm(
+            x)  # TODO: not sure this final norm is actually in the paper, it's already in SublayerConnection
 
         if self.training:
             assert memory.shape == (self.sizes.batch, self.sizes.src_seq, self.sizes.emb)
@@ -270,7 +289,6 @@ class SublayerConnection(nn.Module):
         return x + self.dropout(sublayer(self.norm(x)))
 
 
-
 class EncoderLayer(nn.Module):
     """Encoder is made up of self-attn and feed forward"""
 
@@ -314,20 +332,36 @@ class Decoder(nn.Module):
 class DecoderLayer(nn.Module):
     """Decoder is made of self-attn, src-attn, and feed forward"""
 
-    def __init__(self, size, self_attn, src_attn, feed_forward, dropout, sizes: 'Sizes'):
+    def __init__(self, size: int, self_attn: 'MultiHeadedAttention', src_attn: 'MultiHeadedAttention',
+                 feed_forward: 'PositionwiseFeedForward', dropout: float, sizes: 'Sizes'):
         super().__init__()
         self.size = size
         self.self_attn = self_attn
         self.src_attn = src_attn
         self.feed_forward = feed_forward
         self.sublayer = clones(SublayerConnection(size, dropout, sizes), 3)
+        self.sizes = sizes
 
-    def forward(self, x, memory, src_mask, tgt_mask):
+    def forward(self, x: torch.Tensor, memory: torch.Tensor, src_mask: torch.Tensor, tgt_mask: torch.Tensor):
         """Follow Figure 1 (right) for connections"""
+        n_batches = x.size(0)
         m = memory
+
+        if self.training:
+            assert x.shape == (n_batches, self.sizes.tgt_seq - 1, self.sizes.emb)
+
+        # 1) self-attention
         x = self.sublayer[0](x, lambda i: self.self_attn(i, i, i, tgt_mask))
+
+        # 2) source attention -- combining the output of the encoder with the decoder embedding through attention
+        # use x (self-attn) as the query, memory as the key, and memory as the value
         x = self.sublayer[1](x, lambda i: self.src_attn(i, m, m, src_mask))
-        return self.sublayer[2](x, self.feed_forward)
+
+        # 3) Feed forward
+        res = self.sublayer[2](x, self.feed_forward)
+        if self.training:
+            assert res.shape == (n_batches, self.sizes.tgt_seq - 1, self.sizes.emb)
+        return res
 
 
 class MultiHeadedAttention(nn.Module):
@@ -362,13 +396,14 @@ class MultiHeadedAttention(nn.Module):
         # 2) Apply attention on all the projected vectors in batch
         x, self.attn = attention(query, key, value, mask, dropout=self.dropout)
 
-        # 3) "Concat" using a view and apply a final linear layer
+        # 3) "Concat" using a view. Note that .contiguous just rearranges the data in memory, after the transpose,
+        # as though the data were generated from scratch
         x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
 
         # 4) Linear layer
         res = self.linears[-1](x)
-        assert res.shape == (nbatches, seq_len, self.sizes.emb)
 
+        assert res.shape == (nbatches, seq_len, self.sizes.emb)
         return res
 
 

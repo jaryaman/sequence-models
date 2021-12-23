@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from seq.transformer.model import EncoderDecoder
+from seq.transformer.model import EncoderDecoder, Generator
 
 
 # *** functions ***
@@ -45,9 +45,18 @@ class Batch:
         self.src = src
         self.src_mask = (src != pad).unsqueeze(-2)
         if tgt is not None:
-            self.tgt = tgt[:, :-1]  # TODO: Why does the target lose the final token? Something to do with shifting right? Teacher forcing?
-            self.tgt_y = tgt[:, 1:]  # trying to predict this: the next token. This is what goes into the loss.
+            # This goes into the decoder for training. At each step, decoder can see current token, and all previous
+            # tokens. These are the t-1 tokens, because we're not allowed to see the true token at training time,
+            # hence :-1
+            self.tgt = tgt[:, :-1]
+
+            # Trying to predict this: the next token. This is what goes into the loss. We don't try to predict the
+            # starter token, hence 1:
+            self.tgt_y = tgt[:, 1:]
+
+            # This mask enforces the model not being able to peek at the true, or future, target tokens in the decoder.
             self.tgt_mask = self.make_non_anticipating_tgt_mask(self.tgt, pad)
+
             self.ntokens = (self.tgt_y != pad).data.sum()
 
     @staticmethod
@@ -136,13 +145,13 @@ class LabelSmoothing(nn.Module):
 
 
 class SimpleLossCompute:
-    def __init__(self, generator, criterion, opt=None):
+    def __init__(self, generator: 'Generator', criterion, opt=None):
         self.generator = generator
         self.criterion = criterion
         self.opt = opt
 
     def __call__(self, x: torch.Tensor, y: torch.Tensor, norm):
-        x = self.generator(x)
+        x = self.generator(x)  # Final linear and softmax, after the RHS box of Fig 1 from Attention is All You Need
         loss = self.criterion(x.contiguous().view(-1, x.size(-1)),
                               y.contiguous().view(-1)) / norm
 
