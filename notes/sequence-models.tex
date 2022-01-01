@@ -323,6 +323,55 @@ Every point in Fig.~\ref{fig:tfm} with the step ``add \& norm'' implements a lay
 where $\bar{x}$ is the sample mean of $x$ over the final dimension (for us, $\demb$), $s_x$ is the sample standard deviation over the final dimension. $a$ and $b$ are learnable scalar parameters called the gain and bias respectively. $\text{Sublayer}(x)$ refers to the layer immediately preceding $\text{AddAndNorm}(x)$ in Fig.~\ref{fig:tfm} -- either multi-head attention or a feed-forward layer. The layer is called a residual connection because it is of the form $f(x) = x + R$, so the network is trying to learn residuals rather than $f(x)$ outright \citep{He16}.
 
 
+\section{Hopfield networks}
+
+For an implementation see \verb+notebooks/05-Hopfield.ipynb+.
+
+\subsection{Classical Hopfield networks}
+
+Classical Hopfield networks \citep{Hopfield82} are mathematical models of memory. They may be written down as spin systems, where the interaction strength between spins (or ``neurons'') are tuned such that some number of spin configurations which we wish to store (called ``memories'') are dynamical steady states of the system.
+
+The state vector of the system is the set of spins $x_i \in \{-1, 1\}$ for $i=1,...,d$. The strength of connections between spins $i$ and $j$ is $W_{ij}$. The system evolves under the following dynamics. At some rate, spins flip according to the following rule:
+\begin{align}
+x_i &\rightarrow 1\ \text{if}\ \sum_{i \neq j} W_{ij} x_j > U_i \\
+x_i &\rightarrow 0\ \text{if}\ \sum_{i \neq j} W_{ij} x_j < U_i
+\end{align}
+until an equilibrium is reached. We usually set $U_i=0\ \forall\ i$, meaning that a spin-up has the same energy as a spin-down.
+
+If we configure $W_{ij}$ in a particular way, we can encode any arbitrary state vector $x$ to be an equilibrium of the dynamical system. Indeed, we can even attempt to store a \textbf{collection} of $N$ state vectors $x^s$ for $s=1,...,N$ (memories) as equilibria of the spin system, by encoding the collection of state vectors in the interaction strengths of the spins. We use the encoding rule
+$$W_{ij} = \sum_{s=1}^N x_i^s x_j^s$$
+i.e. a sum of outer products of each of the state vectors we wish to encode.
+
+We then take some arbitrary state vector $\xi$ and allow this vector to evolve under the dynamics of the system (where the dimensions of $\xi$ can be updated \textbf{synchronously} or \textbf{asynchronously}). A synchronous update rule corresponds to all  spins/neurons of the system being updated at the same time using a centralised clock; such an update rule is
+$$\xi^{t+1} = \text{sgn}(W \xi^t - U).$$
+Synchronous update rules are often thought of as unrealistic biological models (and are also not great in machine learning because we often want to leverage large parallelism). An asynchronous update rule corresponds to applying the previous equation, but for only one component of $\xi$ at a time, until convergence is reached and $\xi^{t+1} = \xi^t$. This asynchronous update rule corresponds to Hamiltonian dynamics with energy:
+$$E=-\frac{1}{2} \xi^T W \xi + \xi^T U.$$
+
+It turns out that the Classical Hopfield network can have poor recall because the equilibria are quite shallow in configuration space: so given an initial state $\xi$ which is ``quite similar'' to some state $x^s$, classical Hopfield networks will often return some other state $x^q$ for $q \neq s$. 
+
+\subsection{Modern Hopfield networks}
+Modern Hopfield networks \citep{Krotov16} are a generalisation of classical Hopfield networks. In general, they use a non-linearity in order to achieve sharper equilibria, allowing better separation of each memory in configuration space. They use an energy function
+\begin{equation}
+E = - \sum_{i=1}^N F(x_i^T \xi)
+\end{equation} 
+where $F$ is some non-linear function, typically a polynomial like $F(z) = z^a$. 
+
+\cite{Demircigil17} use an exponential function $F(z) = \exp(z)$. The corresponding update rule can be shown to be
+\begin{equation}
+\xi^{\text{new}}[l] = \text{sgn}\left[ -E(\xi^{(l+)}) + E(\xi^{(l-)}) \right] \xi[l]
+\end{equation}
+where $\xi^{(l+)} = \xi$ and $\xi^{(l-)}[l] = - \xi[l],\ \xi^{(l-)}[i] = \xi[i]\ \forall\ i \neq l$ [\textbf{TODO: NB:} The product with $\xi[l]$ seems to disagree with the paper and  \href{https://ml-jku.github.io/hopfield-layers/}{this blog}, yet it's what I had to implement to get it to work! I might be misunderstanding something...]
+
+For continuous-valued states, \citep{Ramsauer20} propose a new energy function
+\begin{equation}
+E = -\text{logsumexp}(\beta, X^T \xi) + \frac{1}{2} \xi^T \xi + \beta^{-1} \log N + \frac{1}{2} M^2
+\end{equation}
+where $\beta$ is an inverse temperature, which sets how sharp the equilibria are in configuration space and $M$ is the largest norm of all stored patterns\footnote{In practice, I found that I needed to Z-score all input patterns for the retrieval to work.}. The corresponding update rule is
+\begin{equation}
+\xi^{\text{new}} = X \text{softmax}(\beta X^T \xi).
+\end{equation}
+
+
 \section{Loss functions}
 
 \subsection{Cross entropy}
