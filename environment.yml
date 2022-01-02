@@ -1,17 +1,17 @@
-name: sequence-models
+name: seq
 channels:
   - defaults
 dependencies:
-  - python=3.9
   - pytorch
   - torchvision
   - torchaudio
   - cpuonly
+  - pandas
+  - matplotlib
+  - jupyterlab
   - ca-certificates
   - certifi
   - openssl
-  - pandas
-  - matplotlib
-  - pytest
-  - jupyterlab
-prefix: C:\Users\jarya\miniconda3\envs\sequence-models
+  - tqdm
+  - scipy
+prefix: /home/juvid/miniconda3/envs/seq
