@@ -260,7 +260,7 @@ The alignment models scores how well the inputs around position $j$ and the outp
 \subsection{Scaled dot product attention} \label{sec:dp-attn}
 Scaled dot product attention is a slightly simpler approach to attention than Bahdanau attention. We simply pack together a set of $n$ queries, keys, and values into matrices $Q$, $K$, and $V$ respectively. We then compute the function
 \begin{equation}
-\text{Attention}(Q, K, V) = \text{softmax}\left( \frac{QK^T}{\sqrt{d_k}} \right) V
+\text{Attention}(Q, K, V) = \text{softmax}\left( \frac{QK^T}{\sqrt{d_k}} \right) V \label{eq:dot-prod-attn}
 \end{equation}
 where $Q, K \in \mathbb{R}^{n \times d_k}$ and $V \in \mathbb{R}^{n \times d_v}$. The factor of $\sqrt{d_k}$ attempts to reduce the variance of the dot product, and therefore keep the softmax function in regions of non-negligible gradient.
 
@@ -343,9 +343,12 @@ $$W_{ij} = \sum_{s=1}^N x_i^s x_j^s$$
 i.e. a sum of outer products of each of the state vectors we wish to encode.
 
 We then take some arbitrary state vector $\xi$ and allow this vector to evolve under the dynamics of the system (where the dimensions of $\xi$ can be updated \textbf{synchronously} or \textbf{asynchronously}). A synchronous update rule corresponds to all  spins/neurons of the system being updated at the same time using a centralised clock; such an update rule is
-$$\xi^{t+1} = \text{sgn}(W \xi^t - U).$$
+\begin{equation}
+\xi^{t+1} = \text{sgn}(W \xi^t - U). \label{eq:Hopfield-classical-sync}
+\end{equation}
 Synchronous update rules are often thought of as unrealistic biological models (and are also not great in machine learning because we often want to leverage large parallelism). An asynchronous update rule corresponds to applying the previous equation, but for only one component of $\xi$ at a time, until convergence is reached and $\xi^{t+1} = \xi^t$. This asynchronous update rule corresponds to Hamiltonian dynamics with energy:
 $$E=-\frac{1}{2} \xi^T W \xi + \xi^T U.$$
+The asynchronous update rule corresponds to simply applying Eq.\eqref{eq:Hopfield-classical-sync} element-wise on $\xi$, in any order.
 
 It turns out that the Classical Hopfield network can have poor recall because the equilibria are quite shallow in configuration space: so given an initial state $\xi$ which is ``quite similar'' to some state $x^s$, classical Hopfield networks will often return some other state $x^q$ for $q \neq s$. 
 
@@ -362,15 +365,49 @@ where $F$ is some non-linear function, typically a polynomial like $F(z) = z^a$.
 \end{equation}
 where $\xi^{(l+)} = \xi$ and $\xi^{(l-)}[l] = - \xi[l],\ \xi^{(l-)}[i] = \xi[i]\ \forall\ i \neq l$ [\textbf{TODO: NB:} The product with $\xi[l]$ seems to disagree with the paper and  \href{https://ml-jku.github.io/hopfield-layers/}{this blog}, yet it's what I had to implement to get it to work! I might be misunderstanding something...]
 
+\subsection{Continuous states and self-attention}
+
 For continuous-valued states, \citep{Ramsauer20} propose a new energy function
 \begin{equation}
 E = -\text{logsumexp}(\beta, X^T \xi) + \frac{1}{2} \xi^T \xi + \beta^{-1} \log N + \frac{1}{2} M^2
 \end{equation}
-where $\beta$ is an inverse temperature, which sets how sharp the equilibria are in configuration space and $M$ is the largest norm of all stored patterns\footnote{In practice, I found that I needed to Z-score all input patterns for the retrieval to work.}. The corresponding update rule is
+where $\beta$ is an inverse temperature, which sets how sharp the equilibria are in configuration space and $M$ is the largest norm of all stored patterns\footnote{In practice, I found that I needed to Z-score all input patterns for the retrieval to work.}. The corresponding (asynchronous) update rule is
 \begin{equation}
-\xi^{\text{new}} = X \text{softmax}(\beta X^T \xi).
+\xi^{\text{new}} = X \text{softmax}(\beta X^T \xi). \label{eq:hopfield-cont}
 \end{equation}
 
+It turns out that if we appropriately project the patterns and the result, then Eq.\eqref{eq:hopfield-cont} is equivalent to dot-product self-attention. If we consider $S$ raw state patterns $R = (\xi_1,...,\xi_S)^T$ and $N$ raw stored patterns $Y=(y_1,...,y_N)^T$ and then use the projections
+\begin{align}
+Q&=RW_Q\\
+K&=YW_K\\
+V&=KW_V
+\end{align}
+then if we let $\beta = 1/\sqrt{d_k}$ then we obtain
+\begin{equation}
+Z = Q^{\text{new}}W_V = \text{softmax}\left( \frac{QK^T}{\sqrt{d_k}}\right) KW_V = \text{softmax}\left( \frac{QK^T}{\sqrt{d_k}}\right)V
+\end{equation}
+which is the form for dot-product self-attention (Eq.\eqref{eq:dot-prod-attn}). This equation for $Z$ defines a Hopfield layer, see Fig.~\ref{fig:hopfield-layer} (for an implementation, see the authors' \href{https://github.com/ml-jku/hopfield-layers}{GitHub repository}).
+
+\begin{figure}
+\begin{center}
+\includegraphics[width=0.6\columnwidth]{../figures/hopfield-layer.jpg}  
+\end{center}
+\caption{Hopfield layer architecture}
+\label{fig:hopfield-layer}
+\end{figure}
+
+Compared to self-attention, Hopfield layers are useful in the following contexts:
+\begin{enumerate}[noitemsep]
+\item Association of two sets of vectors
+\item Searching a set of fixed patterns
+\item Storing or learning static patterns
+\end{enumerate}
+Some settings where this could be used include:
+\begin{itemize}[noitemsep]
+\item The training data is used as stored patterns, the new data as state pattern, and the training label to project the output of the Hopfield layer.
+\item When only one static pattern (query) exists, then a Hopfield layer is de facto pooling over the sequence. The static pattern is a prototype pattern, i.e. $Q$ is learned. \textbf{[TODO: Don't understand.]}
+\item Needle in a haystack problems, where there exist a large number of patterns, but only a tiny minority are relevant for the model output. The inputs $K$ are partially learned by a neural network. See \citep{Widrich20} for an example.
+\end{itemize}
 
 \section{Loss functions}
 
