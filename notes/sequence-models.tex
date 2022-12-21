@@ -257,24 +257,38 @@ where $W_a \in \mathbb{R}^{n \times n}$, $U_a \in \mathbb{R}^{n \times 2n}$ and 
 
 The alignment models scores how well the inputs around position $j$ and the output at position $j$ match. The context vector for output position $j$ is therefore a reweighting of the input sequence annotations, according to the `probability' that a particular input is `relevant' for the current output position $j$. See \verb#seq.enc_dec_attn# for an implementation.
 
+\newcommand{\demb}{d_{\text{emb}}}
+
 \subsection{Scaled dot product attention} \label{sec:dp-attn}
-Scaled dot product attention is a slightly simpler approach to attention than Bahdanau attention. We simply pack together a set of $n$ queries, keys, and values into matrices $Q$, $K$, and $V$ respectively. We then compute the function
+Scaled dot product attention is a slightly simpler approach to attention than Bahdanau attention. We simply pack together a set of $n$ queries, keys, and values (each of dimension $d_k$) into matrices $Q$, $K$, and $V$ respectively. We then compute the function
 \begin{equation}
 \text{Attention}(Q, K, V) = \text{softmax}\left( \frac{QK^T}{\sqrt{d_k}} \right) V \label{eq:dot-prod-attn}
 \end{equation}
-where $Q, K \in \mathbb{R}^{n \times d_k}$ and $V \in \mathbb{R}^{n \times d_v}$. The factor of $\sqrt{d_k}$ attempts to reduce the variance of the dot product, and therefore keep the softmax function in regions of non-negligible gradient.
+where $Q, K \in \mathbb{R}^{n \times d_k}$ $V \in \mathbb{R}^{n \times d_v}$. The factor of $\sqrt{d_k}$ attempts to reduce the variance of the dot product, and therefore keep the softmax function in regions of non-negligible gradient. (Note that, in general, $d_k \neq d_v \neq \demb$, where $\demb=$ embedding dimension, as there may be an intervening linear projection between the embeddings and the query/key/value vectors, as is the case of self-attention.)
 
-\newcommand{\demb}{d_{\text{emb}}}
+\paragraph{Intuition for queries, keys, and values} The notion of queries, keys, and values comes from information retrieval systems. To better understand these terms, an analogy might be useful. Imagine you're at the supermarket buying a set of ingredients on your shopping list. Then,
+\begin{itemize}[noitemsep]
+\item Query: Ingredient on your shopping list
+\item Key: Label on an item on the shelf
+\item Value: The actual item on the shelf
+\end{itemize}
+As you go through the supermarket, you check the similarity between the item on your list (query) and the label of the item (key). If there is a match, you take the item (value). This analogy breaks down in the sense that attention is a more ``smoothed-out'' concept: for a given ingredient on your shopping list, the query matches every item in the supermarket (key) to some extent.
 
-\section{Self-attention}
-Let's go into more detail on Section~\ref{sec:dp-attn}, and specifically discuss self-attention. The attention mechanism behind recurrent models is involves computing the relevance of each encoder state to the decoder hidden state, at a particular decoder time-step. In contrast, the main idea behind self-attention is to use the whole sequence to re-weight the embeddings, in order to encode some contextual information. E.g.\ the word ``apple'' would be updated to be more ``company-like'' and less ``fruit-like'' if the words ``keynote'' or ``phone'' are close to it. 
 
-Given a sequence of token embeddings $x_1,...,n_n$, self-attention produces a sequence of new embeddings $x_1',...,x_n'$  where each $x_i'$ is a linear combination of all $x_j$:
+
+\subsection{Self-attention}
+Let's go into more conceptual detail on Section~\ref{sec:dp-attn}, and specifically discuss self-attention. The attention mechanism behind recurrent models is involves computing the relevance of each encoder state to the decoder hidden state, at a particular decoder time-step. In contrast, the main idea behind self-attention is to use the whole sequence to re-weight the embeddings, in order to encode some contextual information. E.g.\ the word ``apple'' would be updated to be more ``company-like'' and less ``fruit-like'' if the words ``keynote'' or ``phone'' are close to it. 
+
+Given a sequence of token embeddings $x_1,...,x_n$, self-attention produces a sequence of new embeddings $x_1',...,x_n'$  where each $x_i'$ is a linear combination of all $x_j$:
 \begin{align}
-x_i' = \sum_{j=1}^n w_{ji}, x_j \\
+x_i' = \sum_{j=1}^n w_{ji} x_j \\
 \sum_{j}w_{ji} = 1
 \end{align}
-The coefficients $w_{ji}$ are called \textbf{attention weights}.  
+The coefficients $w_{ji}$ are called \textbf{attention weights}, and the resulting embeddings are called \textit{contextualized embeddings} and predate the invention of the transformer. 
+
+In practice, when we perform self-attention, we apply independent weight matrices $W_{Q,K,V}$ to the input embeddings $x_1,...,x_n$ to generate the queries, keys, and values, and then apply Eq.\eqref{eq:dot-prod-attn}. The result is a so-called ``attention head''. Generating multiple independent weight matrices $W_{Q,K,V,i}$ for $i=1,...,h$ results in multi-headed attention -- see Section~\ref{sec:multi_head_attn}. In other words, when computing attention weights, we do not directly ask which token embedding is most similar to which other token embedding through a naive dot-product, but rather we first make a linear projection of the embeddings into another space for the queries/keys/values and then compute our dot-product similarity metric there.
+
+
 
 
 \section{Transformers}
