@@ -408,10 +408,19 @@ class MultiHeadedAttention(nn.Module):
 
 
 class PositionwiseFeedForward(nn.Module):
-    """Fully connected feed-forward network (FFN(x))"""
+    """Fully connected feed-forward network (FFN(x)).
+
+    Processes each embedding *independently*. This is where it's hypothesized most of
+    the capacity and memorization exists in the model. It's the part that is most
+    often scaled up.
+
+    """
 
     def __init__(self, d_emb, d_ff, dropout=0.1):
         super().__init__()
+
+        # the first argument is usually reserved for the batch size, to work on batches independently. Here,
+        # each embedding dimension is processed independently.
         self.w_1 = nn.Linear(d_emb, d_ff)
         self.w_2 = nn.Linear(d_ff, d_emb)
         self.dropout = nn.Dropout(dropout)
