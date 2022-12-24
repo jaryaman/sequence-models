@@ -95,6 +95,7 @@ def main():
     decoded = decode_on_sequential_source(model, sizes)
     print(f'Decoded on sequential source: {decoded}')
     print('Done.')
+    return decoded
 
 
 

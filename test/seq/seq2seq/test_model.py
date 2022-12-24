@@ -2,7 +2,7 @@ import pytest
 import torch
 import torch.nn as nn
 from torch import optim
-import random
+
 from seq.seq2seq.model import (SOS_token, EncoderRNN, DecoderRNN, AttnDecoderRNN, Lang, tensor_from_sentence,
                                train, tensors_from_pair)
 
@@ -30,9 +30,6 @@ class TestLang:
         self.prepare_data(make_langs)
         assert self.input_lang.name == 'fra'
         assert self.input_lang.n_words == 11
-    
-    def test_foo():
-        assert False
 
 
 class TestEncoderRNN:
@@ -53,6 +50,7 @@ class TestEncoderRNN:
         assert output.size() == (1, 1, n_hidden)
         assert hidden.size() == (1, 1, n_hidden)
 
+
 class TestDecoderRNN:
     def prepare_data(self, make_langs):
         self.pairs, self.input_lang, self.output_lang = make_langs
@@ -62,7 +60,6 @@ class TestDecoderRNN:
 
         n_hidden = 5
         decoder = DecoderRNN(n_hidden, self.output_lang.n_words, DEVICE)
-
 
         decoder_input = torch.tensor([SOS_token], device=DEVICE)
         target_length = 6
@@ -75,6 +72,7 @@ class TestDecoderRNN:
 
         assert decoder_output.size() == (1, self.output_lang.n_words)
         assert hidden.size() == (1, 1, n_hidden)
+
 
 class TestAttnDecoderRNN:
     n_hidden = 5
@@ -107,12 +105,12 @@ class TestAttnDecoderRNN:
         assert hidden.size() == (1, 1, n_hidden)
         assert decoder_attention.size() == (1, self.max_length)
 
+
 class TestTrain:
     n_hidden = 5
     max_length = 11
-    learning_rate=0.01
+    learning_rate = 0.01
     n_iters = 10
-
 
     def prepare_data(self, make_langs):
         self.pairs, self.input_lang, self.output_lang = make_langs
