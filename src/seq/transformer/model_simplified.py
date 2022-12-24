@@ -1,16 +1,22 @@
-"""A simplified transformer, from Natural Language Processing with Transformers by  Leandro von Werra,
-Lewis Tunstall, and Thomas Wolf"""
+"""A simplified encoder-only transformer, from Natural Language Processing with Transformers by  Leandro von Werra,
+Lewis Tunstall, and Thomas Wolf
+
+See https://github.com/karpathy/minGPT/blob/master/mingpt/model.py for a minimal implementation for an encoder-decoder
+"""
 from math import sqrt
 
 import torch
 import torch.nn.functional as F
 from torch import nn
-from transformers import AutoConfig
+from typing import Optional
 
 
-def scaled_dot_product_attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
+def scaled_dot_product_attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask: Optional[torch.Tensor] = None):
+    """Masking would be used in a decoder"""
     dim_k = query.size(-1)
     scores = torch.bmm(query, key.transpose(1, 2)) / sqrt(dim_k)
+    if mask is not None:
+        scores = scores.masked_fill(mask == 0, float("-inf"))
     weights = F.softmax(scores, dim=-1)
     return torch.bmm(weights, value)
 
